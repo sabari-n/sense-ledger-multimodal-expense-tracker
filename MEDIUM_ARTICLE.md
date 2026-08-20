@@ -357,8 +357,8 @@ Moving Ollama to native host execution with GPU acceleration turns prompt ingest
 
 ### Step 1: Clone & Configure
 ```bash
-git clone https://github.com/sabari-n/local-multimodal-expense-tracker.git
-cd local-multimodal-expense-tracker
+git clone https://github.com/sabari-n/sense-ledger-multimodal-expense-tracker.git
+cd sense-ledger-multimodal-expense-tracker
 cp .env.example .env
 ```
 

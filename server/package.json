@@ -1,7 +1,7 @@
 {
-  "name": "voice-expense-tracker-backend",
+  "name": "sense-ledger-backend",
   "version": "1.0.0",
-  "description": "Backend for processing voice notes for expenses",
+  "description": "Backend for SenseLedger - 100% Local Multi-Modal AI Expense Tracker",
   "main": "server.js",
   "type": "module",
   "scripts": {

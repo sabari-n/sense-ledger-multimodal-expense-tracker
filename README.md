@@ -85,9 +85,11 @@ SenseLedger is engineered to run seamlessly on consumer hardware (16GB RAM lapto
 
 ## 🚀 Quick Start (Docker)
 
-### 1. Configure Environment
-Copy the sample environment file:
+### 1. Clone & Configure Environment
+Clone the repository and copy the environment file:
 ```bash
+git clone https://github.com/sabari-n/sense-ledger-multimodal-expense-tracker.git
+cd sense-ledger-multimodal-expense-tracker
 cp .env.example .env
 ```
 *(Optional: Add your `TELEGRAM_BOT_TOKEN` to enable the Telegram bot).*
