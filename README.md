@@ -92,19 +92,32 @@ git clone https://github.com/sabari-n/sense-ledger-multimodal-expense-tracker.gi
 cd sense-ledger-multimodal-expense-tracker
 cp .env.example .env
 ```
-*(Optional: Add your `TELEGRAM_BOT_TOKEN` to enable the Telegram bot).*
 
-### 2. Launch All Containers
+### 2. Set Up Your Telegram Bot (via @BotFather)
+To log expenses via voice notes, receipt photos, and chat in Telegram:
+
+1. Open Telegram and search for [@BotFather](https://t.me/botfather).
+2. Start the chat by sending `/start`, then send `/newbot`.
+3. Enter a friendly display name for your bot (e.g., `My SenseLedger Bot`).
+4. Enter a unique username ending in `bot` (e.g., `my_senseledger_bot`).
+5. Copy the generated **HTTP API Token** (e.g. `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`).
+6. Paste the token into your `.env` file:
+   ```env
+   TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
+   ```
+
+### 3. Launch All Containers
 ```bash
 docker compose up --build -d
 ```
 
-### 3. Access the Applications
+### 4. Access & Test
 - **Web UI**: [http://localhost:80](http://localhost:80) (or [http://localhost:5173](http://localhost:5173) in dev mode)
-- **Backend API**: [http://localhost:9088](http://localhost:9088)
+- **Telegram Bot**: Open Telegram, search for your bot username, send `/start`, and send a voice note (*"Spent ₹500 on dinner"*) or snap a receipt photo!
 - **Kafka UI Console**: [http://localhost:8090](http://localhost:8090)
 - **Grafana Monitoring Dashboard**: [http://localhost:3000](http://localhost:3000) *(admin / admin)*
 - **Prometheus Metrics**: [http://localhost:9090](http://localhost:9090)
+- **Backend API**: [http://localhost:9088](http://localhost:9088)
 
 ---
 

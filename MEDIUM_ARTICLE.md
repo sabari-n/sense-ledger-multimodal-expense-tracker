@@ -355,7 +355,14 @@ Moving Ollama to native host execution with GPU acceleration turns prompt ingest
 - [Ollama](https://ollama.com/) (`ollama pull llama3.2:1b`)
 - A free Telegram Bot Token from [@BotFather](https://t.me/botfather)
 
-### Step 1: Clone & Configure
+### Step 1: Create Your Free Telegram Bot (via @BotFather)
+1. Open Telegram and search for [@BotFather](https://t.me/botfather).
+2. Start the chat by sending `/start`, then send `/newbot`.
+3. Choose a friendly display name (*e.g., "My SenseLedger Bot"*).
+4. Choose a unique username ending in `bot` (*e.g., "my_senseledger_bot"*).
+5. Copy the generated **HTTP API Token** (*e.g., `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`*).
+
+### Step 2: Clone & Configure
 ```bash
 git clone https://github.com/sabari-n/sense-ledger-multimodal-expense-tracker.git
 cd sense-ledger-multimodal-expense-tracker
@@ -364,12 +371,12 @@ cp .env.example .env
 
 Add your Telegram bot token to `.env`:
 ```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
 KAFKA_BROKERS=kafka:9092
 OLLAMA_HOST=http://ollama:11434
 ```
 
-### Step 2: Launch the Stack
+### Step 3: Launch the Stack
 ```bash
 docker compose up -d
 ```
@@ -385,11 +392,11 @@ The stack spins up:
 - **React Frontend Dashboard** (Web UI on port `80` / `5173`)
 - **Prometheus & Grafana** (Real-time AI/Kafka observability dashboards on ports `9090` and `3000`)
 
-### Step 3: Test It in Telegram
-1. Open Telegram and search for your bot.
+### Step 4: Test It in Telegram
+1. Open Telegram and search for your bot username.
 2. Send `/start`.
-3. Send a voice message: *"Bought fuel for $45 with Credit Card"*.
-4. In **~1.3 seconds**, you will receive a fully structured, categorized transaction confirmation!
+3. Send a voice message: *"Bought fuel for $45 with Credit Card"*, or upload a receipt photo.
+4. In **~0.5 seconds** (with GPU / host mode) or **~1.3s**, you will receive a fully structured, categorized transaction confirmation with inline action buttons!
 
 ---
 
