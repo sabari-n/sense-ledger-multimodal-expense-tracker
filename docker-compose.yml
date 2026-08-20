@@ -1,0 +1,246 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: expense-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: expense_user
+      POSTGRES_PASSWORD: expense_password
+      POSTGRES_DB: expense_db
+    cpus: 1.0
+    mem_limit: 300m
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 300M
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+
+  ollama:
+    image: ollama/ollama
+    container_name: expense-ollama
+    restart: always
+    cpus: 3.5
+    mem_limit: 2500m
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 2500M
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && (ollama list | grep -q 'llama3.2:1b' || ollama pull llama3.2:1b) && wait"]
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: expense-kafka
+    restart: always
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
+      KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_JVM_PERFORMANCE_OPTS: "-Xms128m -Xmx256m"
+    cpus: 1.0
+    mem_limit: 500m
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 500M
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: expense-kafka-ui
+    restart: always
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: expense-tracker
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      JAVA_OPTS: "-Xms64m -Xmx128m"
+    cpus: 0.5
+    mem_limit: 300m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 300M
+    ports:
+      - "8090:8080"
+
+  api:
+    build: ./server
+    container_name: expense-api
+    restart: always
+    ports:
+      - "9088:9088"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      KAFKA_BROKERS: kafka:9092
+      WHISPER_URL: http://whisper:5000/transcribe
+      OCR_URL: http://ocr:5001/ocr
+      OLLAMA_HOST: http://ollama:11434
+    cpus: 1.0
+    mem_limit: 350m
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 350M
+    depends_on:
+      - postgres
+      - ollama
+      - whisper
+      - ocr
+      - kafka
+    volumes:
+      - ./uploads:/app/uploads
+      - ./server/src:/app/src
+
+  whisper:
+    build: ./whisper
+    container_name: expense-whisper
+    restart: always
+    env_file:
+      - .env
+    cpus: 3.5
+    mem_limit: 1000m
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 1000M
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BROKERS: kafka:9092
+    volumes:
+      - ./uploads:/app/uploads
+      - ./whisper:/app
+    ports:
+      - "5000:5000"
+
+  ocr:
+    build: ./ocr
+    container_name: expense-ocr
+    restart: always
+    env_file:
+      - .env
+    cpus: 3.5
+    mem_limit: 1800m
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 1800M
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BROKERS: kafka:9092
+    volumes:
+      - ./uploads:/app/uploads
+      - paddleocr_data:/root/.paddleocr
+    ports:
+      - "5001:5001"
+
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: expense-client
+    restart: always
+    cpus: 0.5
+    mem_limit: 100m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 100M
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: expense-cadvisor
+    restart: always
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+    ports:
+      - "8085:8080"
+    cpus: 0.5
+    mem_limit: 200m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 200M
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: expense-prometheus
+    restart: always
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    cpus: 0.5
+    mem_limit: 300m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 300M
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: expense-grafana
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    cpus: 0.5
+    mem_limit: 300m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 300M
+    depends_on:
+      - prometheus
+
+volumes:
+  ollama_data:
+  paddleocr_data:
+  kafka_data:
+  prometheus_data:
+  grafana_data:

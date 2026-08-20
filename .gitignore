@@ -1,0 +1,29 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Database
+postgres_data/
+expenses.db
+
+# Uploads & Media
+uploads/
+server/uploads/
+*.webm
+*.mp4
+*.ogg
+*.wav
+*.mp3
+*.jpg
+*.jpeg
+*.png
+*.gif
+
+# Environment Variables
+.env
+*.env
+
+# OS Files
+.DS_Store
+Thumbs.db

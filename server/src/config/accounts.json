@@ -1,0 +1,50 @@
+[
+  {
+    "name": "Cash",
+    "account_type": "cash",
+    "icon": "fa-money-bill-wave",
+    "color": "#10b981",
+    "is_default": false,
+    "aliases": ["cash"]
+  },
+  {
+    "name": "Union Bank",
+    "account_type": "bank",
+    "icon": "fa-building-columns",
+    "color": "#3b82f6",
+    "is_default": true,
+    "aliases": ["union bank", "union"]
+  },
+  {
+    "name": "ICICI",
+    "account_type": "bank",
+    "icon": "fa-building-columns",
+    "color": "#0ea5e9",
+    "is_default": false,
+    "aliases": ["icici"]
+  },
+  {
+    "name": "Sodexo",
+    "account_type": "digital_wallet",
+    "icon": "fa-credit-card",
+    "color": "#f59e0b",
+    "is_default": false,
+    "aliases": ["sodexo"]
+  },
+  {
+    "name": "Credit Card",
+    "account_type": "credit_card",
+    "icon": "fa-credit-card",
+    "color": "#ef4444",
+    "is_default": false,
+    "aliases": ["credit card", "creditcard", "credit", "card"]
+  },
+  {
+    "name": "UPI",
+    "account_type": "digital_wallet",
+    "icon": "fa-mobile-screen-button",
+    "color": "#06b6d4",
+    "is_default": false,
+    "aliases": ["upi", "gpay", "phonepe", "paytm", "ybl"]
+  }
+]

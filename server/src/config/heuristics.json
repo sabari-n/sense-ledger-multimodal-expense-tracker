@@ -1,0 +1,55 @@
+{
+  "intents": {
+    "expense": [
+      "spent",
+      "spend",
+      "paid",
+      "pay",
+      "bought",
+      "buy",
+      "purchased",
+      "purchase",
+      "ordered",
+      "order",
+      "bill",
+      "fee",
+      "cost",
+      "eat",
+      "ate",
+      "dinner",
+      "lunch",
+      "breakfast",
+      "snacks",
+      "food"
+    ],
+    "transfer": [
+      "transfer",
+      "transferred",
+      "trf",
+      "sent money to",
+      "moved to",
+      "send to"
+    ],
+    "income": [
+      "income",
+      "salary",
+      "credited",
+      "credit",
+      "received",
+      "receive",
+      "earned",
+      "earn",
+      "bonus",
+      "refund",
+      "cashback",
+      "deposit",
+      "deposited",
+      "add amount",
+      "add to"
+    ]
+  },
+  "silencePatterns": [
+    "thankyou",
+    "you"
+  ]
+}

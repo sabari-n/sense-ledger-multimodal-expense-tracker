@@ -1,0 +1,75 @@
+# docker-compose.override.yml
+# Auto-loaded by `docker compose up` for local development.
+# Adds: hot-reload mounts, debug flags, exposed ports for debugging.
+
+services:
+  postgres:
+    ports:
+      - "6033:5432"
+
+  ollama:
+    ports:
+      - "11434:11434"
+
+  kafka:
+    ports:
+      - "9092:9092"
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    command: ["nodemon", "--watch", "src", "src/server.js"]
+    volumes:
+      - ./server/src:/app/src
+      - ./uploads:/app/uploads
+
+  whisper:
+    environment:
+      FLASK_ENV: development
+      FLASK_DEBUG: "1"
+      KAFKA_BROKERS: kafka:9092
+    volumes:
+      - ./whisper:/app
+      - ./uploads:/app/uploads
+
+  ocr:
+    environment:
+      FLASK_ENV: development
+      FLASK_DEBUG: "1"
+      KAFKA_BROKERS: kafka:9092
+    volumes:
+      - ./ocr:/app
+      - ./uploads:/app/uploads
+      - paddleocr_data:/root/.paddleocr
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    cpus: 1.0
+    mem_limit: 512m
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_TARGET: http://api:9088
+    volumes:
+      - ./client/src:/app/src
+      - ./client/public:/app/public
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: expense-kafka-ui
+    restart: always
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: expense-tracker
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      - kafka

@@ -1,0 +1,482 @@
+[
+  {
+    "name": "Food",
+    "emoji": "🍜",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Fruit and Vegetables and Groceries",
+      "Lunch",
+      "Dinner",
+      "Breakfast",
+      "Snacks",
+      "Beverages",
+      "Non Veg",
+      "Restaurant",
+      "Swiggy"
+    ],
+    "keywords": [
+      "food",
+      "hotel",
+      "biryani",
+      "chicken",
+      "restaurant",
+      "swiggy",
+      "zomato",
+      "cafe",
+      "tea",
+      "coffee",
+      "meat",
+      "fish",
+      "bakery",
+      "supermarket",
+      "mart",
+      "groceries",
+      "vegetables",
+      "fruits"
+    ],
+    "is_system": true,
+    "sort_order": 1
+  },
+  {
+    "name": "Transport",
+    "emoji": "🚖",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Car",
+      "Taxi",
+      "Petrol",
+      "Auto",
+      "Parking",
+      "Toll"
+    ],
+    "keywords": [
+      "petrol",
+      "fuel",
+      "diesel",
+      "auto",
+      "taxi",
+      "uber",
+      "ola",
+      "cab",
+      "toll",
+      "parking"
+    ],
+    "is_system": true,
+    "sort_order": 2
+  },
+  {
+    "name": "Household",
+    "emoji": "🪑",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Appliances",
+      "Kitchen",
+      "Electricity",
+      "Furniture",
+      "Gas",
+      "Cleaning"
+    ],
+    "keywords": [
+      "electricity",
+      "furniture",
+      "appliances",
+      "kitchen",
+      "cleaning",
+      "gas"
+    ],
+    "is_system": true,
+    "sort_order": 3
+  },
+  {
+    "name": "Rent,Waterbill,Maintenance",
+    "emoji": "🏡",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Rent",
+      "Water Bill",
+      "Maintenance"
+    ],
+    "keywords": [
+      "rent",
+      "rant",
+      "ranta",
+      "drant",
+      "renta",
+      "room rent",
+      "house rent",
+      "water bill",
+      "waterbill",
+      "maintenance"
+    ],
+    "is_system": true,
+    "sort_order": 4
+  },
+  {
+    "name": "Culture",
+    "emoji": "🖼",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Outing",
+      "Movie",
+      "Amazon Prime",
+      "Park"
+    ],
+    "keywords": [
+      "outing",
+      "movie",
+      "amazon prime",
+      "netflix",
+      "park",
+      "theatre",
+      "cinema"
+    ],
+    "is_system": true,
+    "sort_order": 5
+  },
+  {
+    "name": "Health",
+    "emoji": "🧘🏼",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Medicine",
+      "Sanitary",
+      "Doctor"
+    ],
+    "keywords": [
+      "medicine",
+      "doctor",
+      "hospital",
+      "clinic",
+      "pharmacy",
+      "sanitary",
+      "tablet",
+      "syrup"
+    ],
+    "is_system": true,
+    "sort_order": 6
+  },
+  {
+    "name": "Beauty",
+    "emoji": "💄",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Hair Cut",
+      "Flower",
+      "Accessories"
+    ],
+    "keywords": [
+      "hair",
+      "hair cut",
+      "salon",
+      "beauty",
+      "flower",
+      "accessories",
+      "spa",
+      "parlour"
+    ],
+    "is_system": true,
+    "sort_order": 7
+  },
+  {
+    "name": "Apparel",
+    "emoji": "🧥",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Clothing",
+      "Shoes"
+    ],
+    "keywords": [
+      "clothing",
+      "cloth",
+      "dress",
+      "shoes",
+      "shirt",
+      "pant",
+      "footwear",
+      "tshirt"
+    ],
+    "is_system": true,
+    "sort_order": 8
+  },
+  {
+    "name": "Internet",
+    "emoji": "🛜",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Airtel",
+      "Jio",
+      "Skylink",
+      "Broadband"
+    ],
+    "keywords": [
+      "recharge",
+      "wifi",
+      "broadband",
+      "airtel",
+      "jio",
+      "internet",
+      "skylink",
+      "data"
+    ],
+    "is_system": true,
+    "sort_order": 9
+  },
+  {
+    "name": "Temple",
+    "emoji": "🛕",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Temple",
+      "Offerings",
+      "Prayer"
+    ],
+    "keywords": [
+      "temple",
+      "prayer",
+      "worship",
+      "ritual",
+      "offerings"
+    ],
+    "is_system": true,
+    "sort_order": 10
+  },
+  {
+    "name": "Relatives",
+    "emoji": "👨‍👩‍👧‍👦",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Parents",
+      "Family",
+      "Friends Gift"
+    ],
+    "keywords": [
+      "parents",
+      "family",
+      "friends gift",
+      "mom",
+      "dad",
+      "brother",
+      "sister"
+    ],
+    "is_system": true,
+    "sort_order": 11
+  },
+  {
+    "name": "Dmart",
+    "emoji": "🛒",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Dmart Household"
+    ],
+    "keywords": [
+      "dmart"
+    ],
+    "is_system": true,
+    "sort_order": 12
+  },
+  {
+    "name": "Car",
+    "emoji": "🚙",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Car Loan",
+      "Car EMI",
+      "Service",
+      "Insurance"
+    ],
+    "keywords": [
+      "car service",
+      "car emi",
+      "car insurance"
+    ],
+    "is_system": true,
+    "sort_order": 13
+  },
+  {
+    "name": "Loan",
+    "emoji": "💳",
+    "transaction_type": "expense",
+    "subcategories": [
+      "EMI",
+      "Loan Settlement",
+      "Gold Loan",
+      "Lend"
+    ],
+    "keywords": [
+      "emi",
+      "loan",
+      "loan settlement",
+      "gold loan",
+      "lend"
+    ],
+    "is_system": true,
+    "sort_order": 14
+  },
+  {
+    "name": "Tax",
+    "emoji": "🧾",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Tax Payment",
+      "Tax Filing"
+    ],
+    "keywords": [
+      "tax",
+      "tax payment",
+      "tax filing",
+      "income tax",
+      "gst"
+    ],
+    "is_system": true,
+    "sort_order": 15
+  },
+  {
+    "name": "Sports",
+    "emoji": "🏸",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Badminton",
+      "Gym"
+    ],
+    "keywords": [
+      "badminton",
+      "gym",
+      "sports",
+      "fitness"
+    ],
+    "is_system": true,
+    "sort_order": 16
+  },
+  {
+    "name": "Astro",
+    "emoji": "🔮",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Astrology",
+      "Horoscope"
+    ],
+    "keywords": [
+      "astrology",
+      "horoscope",
+      "astrologer"
+    ],
+    "is_system": true,
+    "sort_order": 17
+  },
+  {
+    "name": "Gift",
+    "emoji": "🎁",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Gift",
+      "Gift Packing"
+    ],
+    "keywords": [
+      "gift",
+      "gift packing",
+      "present",
+      "birthday gift"
+    ],
+    "is_system": true,
+    "sort_order": 18
+  },
+  {
+    "name": "Asset",
+    "emoji": "🪙",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Gold",
+      "Investment"
+    ],
+    "keywords": [
+      "gold",
+      "jewel",
+      "asset",
+      "investment",
+      "stocks",
+      "mutual fund"
+    ],
+    "is_system": true,
+    "sort_order": 19
+  },
+  {
+    "name": "Interest",
+    "emoji": "📊",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Credit Bill",
+      "Loan Interest"
+    ],
+    "keywords": [
+      "credit bill",
+      "loan interest",
+      "card bill"
+    ],
+    "is_system": true,
+    "sort_order": 20
+  },
+  {
+    "name": "Other",
+    "emoji": "📋",
+    "transaction_type": "expense",
+    "subcategories": [
+      "Difference",
+      "Misc"
+    ],
+    "keywords": [
+      "misc",
+      "miscellaneous",
+      "difference"
+    ],
+    "is_system": true,
+    "sort_order": 21
+  },
+  {
+    "name": "Salary",
+    "emoji": "💰",
+    "transaction_type": "income",
+    "subcategories": [
+      "Salary"
+    ],
+    "keywords": [
+      "salary",
+      "paycheck",
+      "wages"
+    ],
+    "is_system": true,
+    "sort_order": 1
+  },
+  {
+    "name": "Bonus",
+    "emoji": "🏅",
+    "transaction_type": "income",
+    "subcategories": [
+      "Interest Earned",
+      "Bonus"
+    ],
+    "keywords": [
+      "bonus",
+      "interest earned",
+      "dividend",
+      "cashback",
+      "reward"
+    ],
+    "is_system": true,
+    "sort_order": 2
+  },
+  {
+    "name": "Other Income",
+    "emoji": "📋",
+    "transaction_type": "income",
+    "subcategories": [
+      "Difference",
+      "Misc"
+    ],
+    "keywords": [
+      "other income",
+      "refund"
+    ],
+    "is_system": true,
+    "sort_order": 3
+  }
+]

@@ -1,0 +1,26 @@
+# docker-compose.prod.yml
+# Used explicitly for production deployments.
+# No source mounts, no debug flags, nginx serves the built client.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+services:
+  api:
+    restart: always
+    command: ["node", "src/server.js"]
+
+  whisper:
+    environment:
+      FLASK_ENV: production
+      FLASK_DEBUG: "0"
+
+  ocr:
+    environment:
+      FLASK_ENV: production
+      FLASK_DEBUG: "0"
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
