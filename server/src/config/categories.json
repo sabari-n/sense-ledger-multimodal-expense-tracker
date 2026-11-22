@@ -478,5 +478,14 @@
     ],
     "is_system": true,
     "sort_order": 3
+  },
+  {
+    "name": "Transfer",
+    "emoji": "🔄",
+    "transaction_type": "transfer",
+    "subcategories": [],
+    "keywords": [],
+    "is_system": true,
+    "sort_order": 1
   }
 ]

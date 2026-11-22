@@ -1,0 +1,15 @@
+[
+  { "name": "food delivery receipt", "textFile": "fixtures/food-delivery-receipt.txt", "expect": { "amount": 125, "type": "expense", "category": "Food" } },
+  { "name": "grocery receipt", "textFile": "fixtures/grocery-receipt.txt", "expect": { "amount": 195, "type": "expense", "category": "Food" } },
+  { "name": "spoken amount", "text": "I have spent around a two thousand rupees in my account for food ordering those are and water", "expect": { "amount": 2000, "type": "expense", "category": "Food" } },
+  { "name": "transfer", "text": "transfer 1000 from Union Bank to ICICI", "expect": { "amount": 1000, "type": "transfer", "account": "Union Bank", "to_account": "ICICI" } },
+  { "name": "transfer (moved into)", "text": "moved 2000 from icici into cash", "expect": { "amount": 2000, "type": "transfer", "account": "ICICI", "to_account": "Cash" } },
+  { "name": "card payment", "text": "paid 300 on credit card for petrol", "expect": { "amount": 300, "type": "expense", "category": "Transport", "account": "Credit Card" } },
+  { "name": "salary", "text": "salary 50000 credited to union bank", "expect": { "amount": 50000, "type": "income", "category": "Salary", "account": "Union Bank" } },
+  { "name": "cashback", "text": "got 500 cashback in UPI", "expect": { "amount": 500, "type": "income", "category": "Bonus", "account": "UPI" } },
+  { "name": "account from text", "text": "paid 120 for coffee from cash", "expect": { "amount": 120, "type": "expense", "category": "Food", "account": "Cash" } },
+  { "name": "plural keyword", "text": "spent five hundred on medicines using sodexo", "expect": { "amount": 500, "type": "expense", "category": "Health", "account": "Sodexo" } },
+  { "name": "rent", "text": "paid 1500 house rent through union bank", "expect": { "amount": 1500, "type": "expense", "category": "Rent,Waterbill,Maintenance", "account": "Union Bank" } },
+  { "name": "shopping", "text": "bought shoes for 2499 on credit card", "expect": { "amount": 2499, "type": "expense", "category": "Apparel", "account": "Credit Card" } },
+  { "name": "greeting (no transaction)", "text": "hello how are you doing today", "expect": { "amount": null } }
+]

@@ -7,6 +7,11 @@ import { startLlmConsumer, startPersistenceConsumer } from './services/kafka.con
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 
+// Last line of defence: log a stray rejected promise instead of letting Node exit.
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection:', reason);
+});
+
 async function start() {
   try {
     await initDB();

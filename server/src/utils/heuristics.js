@@ -114,9 +114,15 @@ export function isIncomeCategory(categoryName) {
 /**
  * Identify intent (transaction_type) from text.
  */
+// "credit card" / "credit/debit card" names a payment method, not income, so the
+// income keyword "credit" must not see it ("Paid via Credit/Debit card" is an expense).
+const CARD_PHRASE_REGEX = /\b(?:credit\s*(?:\/|or|and)?\s*debit|debit\s*(?:\/|or|and)?\s*credit|credit)\s*cards?\b/gi;
+// "credit/debit card" doesn't say which account was used.
+const AMBIGUOUS_CARD_REGEX = /\b(?:credit\s*(?:\/|or|and)\s*debit|debit\s*(?:\/|or|and)\s*credit)\s*cards?\b/gi;
+
 export function detectIntent(text) {
   if (!text) return null;
-  const lower = text.toLowerCase();
+  const lower = text.toLowerCase().replace(CARD_PHRASE_REGEX, ' ');
   const isExp = INTENT_PATTERNS.expense.test(lower);
   const isTrf = INTENT_PATTERNS.transfer.test(lower);
   const isInc = INTENT_PATTERNS.income.test(lower);
@@ -161,4 +167,55 @@ export function matchAccountAlias(text) {
     if (regex.test(text)) return account;
   }
   return null;
+}
+
+// Every account alias, longest first so "credit card" wins over "credit".
+const ACCOUNT_ALIASES = accountsConfig
+  .flatMap((acc) => [acc.name, ...(acc.aliases || [])].map((alias) => ({ account: acc.name, alias: alias.toLowerCase() })))
+  .sort((a, b) => b.alias.length - a.alias.length);
+
+const ACCOUNT_MENTION_REGEX = new RegExp(
+  `\\b(?:(from|to|into|in|via|using|by|with|through|on)\\s+(?:my\\s+|the\\s+)?)?(${ACCOUNT_ALIASES
+    .map(({ alias }) => alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')})\\b`,
+  'gi'
+);
+
+/**
+ * Find account mentions in text, in order, with the preposition before each
+ * ("from cash" -> { account: 'Cash', preposition: 'from' }).
+ */
+export function findAccountMentions(text) {
+  if (!text) return [];
+  const mentions = [];
+  for (const match of text.replace(AMBIGUOUS_CARD_REGEX, ' ').matchAll(ACCOUNT_MENTION_REGEX)) {
+    const entry = ACCOUNT_ALIASES.find(({ alias }) => alias === match[2].toLowerCase());
+    if (entry) mentions.push({ account: entry.account, preposition: match[1]?.toLowerCase() || null });
+  }
+  return mentions;
+}
+
+/**
+ * Read the source (and, for transfers, destination) account straight from the text.
+ * Returns only the fields the text names, so callers keep the LLM's value otherwise.
+ */
+export function accountsFromText(text, isTransfer = false) {
+  const mentions = findAccountMentions(text);
+  if (mentions.length === 0) return {};
+
+  if (!isTransfer) {
+    const withPreposition = mentions.find((m) => m.preposition && m.preposition !== 'to' && m.preposition !== 'into');
+    return { account: (withPreposition || mentions[0]).account };
+  }
+
+  let from = mentions.find((m) => m.preposition === 'from')?.account;
+  let to = mentions.find((m) => m.preposition === 'to' || m.preposition === 'into')?.account;
+  const distinct = [...new Set(mentions.map((m) => m.account))];
+  if (!from) from = distinct.find((a) => a !== to);
+  if (!to) to = distinct.find((a) => a !== from);
+
+  return {
+    ...(from ? { account: from } : {}),
+    ...(to ? { to_account: to } : {}),
+  };
 }

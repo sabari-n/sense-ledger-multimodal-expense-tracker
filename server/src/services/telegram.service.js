@@ -88,7 +88,7 @@ async function processAudioFile({ chatId, fileId, ext = 'ogg', messageType = 'vo
     logger.error(`[Telegram] ${messageType} queuing error:`, err);
     await bot.editMessageText('❌ Something went wrong while queueing audio. Please try again.', {
       chat_id: chatId, message_id: statusMsg.message_id,
-    });
+    }).catch(() => { });
   }
 }
 
@@ -123,6 +123,10 @@ async function processPhotoFile({ chatId, fileId }) {
       filePath: imagePath,
       chatId,
       statusMsgId: statusMsg.message_id,
+      startedAt: startTime,
+      timings: {
+        ingestionMs,
+      },
     });
 
     await bot.editMessageText(
@@ -134,7 +138,7 @@ async function processPhotoFile({ chatId, fileId }) {
     logger.error('[Telegram] Photo queuing error:', err);
     await bot.editMessageText('❌ Something went wrong while queueing image. Please try again.', {
       chat_id: chatId, message_id: statusMsg.message_id,
-    });
+    }).catch(() => { });
   }
 }
 
@@ -213,7 +217,7 @@ async function handleExpenseCorrection(chatId, correctionText) {
     logger.error(`[Telegram] Correction error for ID=${expenseId}:`, err);
     await bot.editMessageText('❌ Failed to update transaction. Please try again.', {
       chat_id: chatId, message_id: statusMsg.message_id,
-    });
+    }).catch(() => { });
   }
 }
 
@@ -302,7 +306,7 @@ async function handleTextMessage(msg) {
     });
   } catch (err) {
     logger.error('[Telegram] Text handler error:', err);
-    await bot.sendMessage(chatId, 'Something went wrong. Please try again.');
+    await bot.sendMessage(chatId, 'Something went wrong. Please try again.').catch(() => { });
   }
 }
 
@@ -375,18 +379,28 @@ export function initTelegramBot(token) {
 
   bot = new TelegramBot(token, { polling: true });
 
-  bot.onText(/\/start/, handleStart);
-  bot.onText(/\/help/, handleStart);
+  // A failed Telegram call (e.g. "chat not found") inside a handler must never
+  // become an unhandled rejection: that kills the whole API process.
+  const safe = (name, handler) => async (...args) => {
+    try {
+      await handler(...args);
+    } catch (err) {
+      logger.error(`[Telegram] ${name} handler failed:`, err);
+    }
+  };
 
-  bot.on('voice', handleVoiceMessage);
-  bot.on('audio', handleAudioMessage);
-  bot.on('photo', handlePhotoMessage);
+  bot.onText(/\/start/, safe('start', handleStart));
+  bot.onText(/\/help/, safe('help', handleStart));
 
-  bot.on('message', (msg) => {
-    if (msg.text && !msg.text.startsWith('/')) handleTextMessage(msg);
-  });
+  bot.on('voice', safe('voice', handleVoiceMessage));
+  bot.on('audio', safe('audio', handleAudioMessage));
+  bot.on('photo', safe('photo', handlePhotoMessage));
 
-  bot.on('callback_query', handleCallbackQuery);
+  bot.on('message', safe('text', async (msg) => {
+    if (msg.text && !msg.text.startsWith('/')) await handleTextMessage(msg);
+  }));
+
+  bot.on('callback_query', safe('callback', handleCallbackQuery));
 
   bot.on('polling_error', (err) => {
     logger.error('[Telegram] Polling error:', err.message);

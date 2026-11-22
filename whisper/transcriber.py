@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+import torch
 import whisper
 import os
 import json
@@ -8,10 +9,35 @@ from kafka import KafkaConsumer, KafkaProducer
 
 app = Flask(__name__)
 
+
+def resolve_device():
+    """Pick the device from WHISPER_DEVICE (auto, cpu or cuda)."""
+    requested = os.getenv("WHISPER_DEVICE", "auto").strip().lower()
+    cuda_available = torch.cuda.is_available()
+    if requested == "auto":
+        return "cuda" if cuda_available else "cpu"
+    if requested not in ("cpu", "cuda"):
+        raise ValueError(f"WHISPER_DEVICE must be auto, cpu or cuda, got '{requested}'")
+    if requested == "cuda" and not cuda_available:
+        raise RuntimeError("WHISPER_DEVICE=cuda but no CUDA GPU is visible to this container")
+    return requested
+
+
+DEVICE = resolve_device()
+
 # Load the model into memory immediately when the container starts
-print("Loading Whisper model into memory (this happens only once)...", flush=True)
-model = whisper.load_model("tiny.en")
+print(f"Loading Whisper model into memory on {DEVICE} (this happens only once)...", flush=True)
+model = whisper.load_model("tiny.en", device=DEVICE)
 print("Whisper model loaded successfully and is ready!", flush=True)
+
+# The HTTP handler and Kafka worker share one model, which is not thread-safe
+model_lock = threading.Lock()
+
+
+def transcribe_file(audio_path):
+    with model_lock:
+        return model.transcribe(audio_path, fp16=DEVICE == "cuda")
+
 
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "kafka:9092").split(",")
 AUDIO_TOPIC = os.getenv("KAFKA_TOPIC_AUDIO_INGESTION", "audio-ingestion-events")
@@ -57,7 +83,7 @@ def run_kafka_worker():
 
             print(f"[Whisper Worker] Transcribing audio for event {event.get('eventId')}...", flush=True)
             t0 = time.time()
-            result = model.transcribe(audio_path)
+            result = transcribe_file(audio_path)
             raw_text = result["text"].strip()
             whisper_duration_ms = int((time.time() - t0) * 1000)
             print(f"[Whisper Worker] Transcript ({whisper_duration_ms}ms): '{raw_text}'", flush=True)
@@ -96,7 +122,7 @@ def transcribe():
         return jsonify({"error": "Audio file not found"}), 404
 
     try:
-        result = model.transcribe(audio_path)
+        result = transcribe_file(audio_path)
         return jsonify({"text": result["text"].strip()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

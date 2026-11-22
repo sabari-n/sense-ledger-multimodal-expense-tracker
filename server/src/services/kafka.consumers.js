@@ -1,6 +1,6 @@
 import { kafka, TOPICS } from '../config/kafka.js';
 import { publishEvent } from './kafka.producer.js';
-import { extractWithLLM } from './llm.service.js';
+import { extractWithLLM, TRANSFER_NEEDS_TWO_ACCOUNTS } from './llm.service.js';
 
 import { EXPENSE_PROMPT } from '../utils/constants.js';
 import * as expenseRepo from '../repositories/expense.repository.js';
@@ -163,12 +163,29 @@ export async function startPersistenceConsumer() {
           return;
         }
 
+        // An amount was found but the extraction is still unusable (e.g. a transfer with no destination)
+        const reject = async (reason) => {
+          logger.warn(`[Persistence Worker] Rejected event ${payload.eventId}: ${reason}`);
+          if (chatId && statusMsgId && bot) {
+            await bot.editMessageText(
+              `⚠️ ${reason}\n\n_Extracted Text:_ "${rawText}"`,
+              { chat_id: chatId, message_id: statusMsgId, parse_mode: 'Markdown' }
+            ).catch(() => { });
+          }
+          kafkaConsumerDuration.observe({ topic, consumer_group: 'persistence-group', status: 'skipped' }, getDuration(start));
+          kafkaMessagesConsumed.inc({ topic, consumer_group: 'persistence-group', status: 'skipped' });
+        };
+        if (extractedData.error) return reject(extractedData.error);
+
         // Save to Database with timing
         const rawType = extractedData.transaction_type?.toLowerCase();
         const txType = ['income', 'transfer'].includes(rawType) ? rawType : 'expense';
         const resolvedAccount = await resolveAccountName(extractedData.account);
         const resolvedToAccount = extractedData.to_account ? await resolveAccountName(extractedData.to_account, false) : null;
         const resolvedCategory = await resolveCategoryName(extractedData.category, txType);
+        if (txType === 'transfer' && (!resolvedToAccount || resolvedToAccount === resolvedAccount)) {
+          return reject(TRANSFER_NEEDS_TWO_ACCOUNTS);
+        }
 
         const dbStart = Date.now();
         const savedExpense = await expenseRepo.create({

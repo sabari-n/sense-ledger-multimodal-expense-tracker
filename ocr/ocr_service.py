@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from paddleocr import PaddleOCR
+import paddle
 import re
 import os
 import json
@@ -9,10 +10,29 @@ from kafka import KafkaConsumer, KafkaProducer
 
 app = Flask(__name__)
 
+
+def resolve_device():
+    """Pick the device from OCR_DEVICE (auto, cpu or cuda)."""
+    requested = os.getenv("OCR_DEVICE", "auto").strip().lower()
+    cuda_available = paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0
+    if requested == "auto":
+        return "cuda" if cuda_available else "cpu"
+    if requested not in ("cpu", "cuda"):
+        raise ValueError(f"OCR_DEVICE must be auto, cpu or cuda, got '{requested}'")
+    if requested == "cuda" and not cuda_available:
+        raise RuntimeError("OCR_DEVICE=cuda but no CUDA GPU is visible to this container")
+    return requested
+
+
+DEVICE = resolve_device()
+
 # Load PaddleOCR 2.8.1 into memory at startup (only once)
-print("Loading PaddleOCR model...", flush=True)
-ocr = PaddleOCR(use_angle_cls=True, lang='en')
+print(f"Loading PaddleOCR model on {DEVICE}...", flush=True)
+ocr = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=DEVICE == "cuda")
 print("PaddleOCR ready.", flush=True)
+
+# The HTTP handler and Kafka worker share one model, which is not thread-safe
+ocr_lock = threading.Lock()
 
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "kafka:9092").split(",")
 IMAGE_TOPIC = os.getenv("KAFKA_TOPIC_IMAGE_INGESTION", "image-ingestion-events")
@@ -28,7 +48,8 @@ def fix_decimals(text):
 
 
 def process_ocr_file(image_path):
-    result = ocr.ocr(image_path, cls=True)
+    with ocr_lock:
+        result = ocr.ocr(image_path, cls=True)
     lines = []
     if result and result[0]:
         for line in result[0]:

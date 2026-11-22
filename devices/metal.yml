@@ -1,0 +1,23 @@
+# AI_DEVICE=metal: Apple Silicon.
+# Docker containers cannot reach the Metal GPU, so Ollama runs natively on the
+# Mac and the Ollama container is disabled. Whisper and OCR stay on CPU.
+
+services:
+  ollama:
+    scale: 0
+
+  api:
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  whisper:
+    extends:
+      file: cpu.yml
+      service: whisper
+
+  ocr:
+    extends:
+      file: cpu.yml
+      service: ocr

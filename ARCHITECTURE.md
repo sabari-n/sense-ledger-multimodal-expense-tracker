@@ -10,56 +10,87 @@ The system processes audio via **OpenAI Whisper**, extracts receipt text via **P
 
 The application is containerized with Docker Compose into decoupled microservices communicating through synchronous REST APIs and an asynchronous Apache Kafka event bus:
 
+Key points about the flow:
+
+- **One Node.js process, several roles.** The `expense-api` container hosts the REST API, the Telegram bot (long polling), and both Kafka consumers (LLM worker and Persistence worker). Telegram is not a separate service. Its messages enter the system through the bot inside the API.
+- **Two paths into the AI services.** The Web Client's voice upload calls Whisper (`POST /transcribe`) and Ollama **synchronously** inside the HTTP request. Telegram media goes **asynchronously** through Kafka, where Whisper and PaddleOCR run background consumer threads.
+- **Files travel by path, not by payload.** The API saves uploads and Telegram downloads to the shared `./uploads` volume. REST calls and Kafka events carry only `filePath` / `audio_path`, which Whisper and OCR read from the same mount.
+- **Inline actions skip Kafka.** 🗑️ Delete and ✏️ Correct callbacks are handled directly by the bot: Delete removes the row, and Correct calls the LLM and updates the row in place.
+
 ```mermaid
 flowchart TD
-    subgraph Clients["📱 Client Ingestion Interfaces"]
+    subgraph Clients["📱 Clients"]
         WebClient["💻 Web Client<br/>(React 19 + Vite + Chart.js)"]
-        Telegram["🤖 Telegram Bot Gateway<br/>(Voice 🎙️ / Photo 📸 / Text ✍️)"]
+        TGUser["💬 Telegram user<br/>(Voice 🎙️ / Photo 📸 / Text ✍️)"]
     end
 
-    subgraph Streaming["⚡ Event Streaming Backbone (Apache Kafka)"]
+    TGCloud["☁️ Telegram Bot API"]
+
+    subgraph APIProc["🚀 expense-api — Node.js Express :9088 (single process)"]
+        REST["REST controllers<br/>CRUD + /expenses/upload-audio"]
+        Bot["🤖 Telegram bot service<br/>(long polling, inline buttons)"]
+        LLMW["🧠 LLM worker<br/>(llm-extraction-group)"]
+        Persist["💾 Persistence worker<br/>(persistence-group)"]
+        Extract["extractWithLLM()<br/>prompt + taxonomy + regex guardrails"]
+        Resolve["Account / category resolver<br/>(in-memory cache)"]
+    end
+
+    subgraph Streaming["⚡ Apache Kafka :9092 (KRaft)"]
         K_Audio[["audio-ingestion-events"]]
         K_Image[["image-ingestion-events"]]
         K_Text[["text-extracted-events"]]
         K_Struct[["expense-structured-events"]]
     end
 
-    subgraph Perception["🤖 Local AI Perception Services"]
-        Whisper["🎙️ Whisper Service<br/>(Python + Flask + Whisper tiny.en)"]
-        OCR["📸 OCR Service<br/>(Python + Flask + PaddleOCR PP-OCRv4)"]
-        Ollama["🧠 Ollama LLM Service<br/>(Llama 3.2 1B / Llama 3)"]
+    subgraph Perception["🤖 Local AI Services"]
+        Whisper["🎙️ Whisper :5000<br/>(HTTP /transcribe + Kafka worker)"]
+        OCR["📸 PaddleOCR :5001<br/>(Kafka worker)"]
+        Ollama["🧠 Ollama :11434<br/>(llama3.2:1b)"]
     end
 
-    subgraph Backend["🚀 Backend Core & Persistence"]
-        API["Node.js Express Server<br/>(REST API + Kafka Producers/Consumers)"]
-        DB[("🐘 PostgreSQL 15<br/>(Expenses, Accounts, Categories, Logs)")]
-    end
+    Uploads[("📁 ./uploads<br/>shared volume")]
+    DB[("🐘 PostgreSQL 15<br/>(expenses, accounts, categories, telegram_raw_messages)")]
 
-    %% Web Synchronous Flow
-    WebClient -->|REST API / HTTP| API
-    API -->|Synchronous Audio Processing| Whisper
-    API -->|Synchronous Prompt Extraction| Ollama
-    API -->|SQL Queries / Sequelize| DB
+    %% ── Sync Web path ──
+    WebClient -->|"REST /api/*"| REST
+    REST -->|"① save audio (multer)"| Uploads
+    REST -->|"② POST /transcribe {audio_path}"| Whisper
+    REST -->|"③ extract"| Extract
+    REST -->|"④ resolve"| Resolve
+    REST -->|"⑤ INSERT / CRUD"| DB
 
-    %% Telegram Asynchronous Event Flow
-    Telegram -->|Voice / Audio Notes| K_Audio
-    Telegram -->|Receipt / Bill Photos| K_Image
-    Telegram -->|Direct Text Messages| K_Text
+    %% ── Async Telegram path ──
+    TGUser <--> TGCloud
+    TGCloud <-->|"getUpdates / sendMessage / editMessageText"| Bot
+    Bot -->|"download media"| Uploads
+    Bot -->|"voice / audio {filePath}"| K_Audio
+    Bot -->|"photo {filePath}"| K_Image
+    Bot -->|"text {rawText}"| K_Text
 
-    K_Audio -->|Consume Audio| Whisper
-    Whisper -->|Publish Transcribed Text| K_Text
+    K_Audio --> Whisper
+    K_Image --> OCR
+    Uploads -.->|"read file"| Whisper
+    Uploads -.->|"read file"| OCR
+    Whisper -->|"rawText + whisperMs"| K_Text
+    OCR -->|"rawText + ocrMs"| K_Text
 
-    K_Image -->|Consume Photo| OCR
-    OCR -->|Publish Extracted Text| K_Text
+    K_Text --> LLMW
+    LLMW -->|"status: Extracting…"| Bot
+    LLMW --> Extract
+    Extract <-->|"/api/chat (format: json)"| Ollama
+    LLMW -->|"extractedData + llmMs"| K_Struct
 
-    K_Text -->|Consume Raw Text| API
-    API -->|Prompt with In-Memory Taxonomy| Ollama
-    Ollama -->|Return JSON| API
-    API -->|Publish Structured Event| K_Struct
+    K_Struct --> Persist
+    Persist --> Resolve
+    Persist -->|"INSERT expense"| DB
+    Persist -->|"summary card + 🗑️ / ✏️ buttons"| Bot
 
-    K_Struct -->|Consume & Validate| API
-    API -->|Save Transaction| DB
-    API -->|Edit Message & Interactive Buttons| Telegram
+    %% ── Inline actions (no Kafka) ──
+    Bot -.->|"log raw text · 🗑️ delete · ✏️ update"| DB
+    Bot -.->|"✏️ correction prompt"| Extract
+
+    classDef topic fill:#fff4d6,stroke:#d4a017,color:#333
+    class K_Audio,K_Image,K_Text,K_Struct topic
 ```
 
 ---
@@ -72,51 +103,93 @@ flowchart TD
 sequenceDiagram
     autonumber
     actor User as User (Telegram)
-    participant TG as Telegram Bot
+    participant TG as Telegram Bot (API process)
+    participant Vol as ./uploads (shared volume)
     participant Kafka as Apache Kafka
-    participant Whisper as Whisper Service
-    participant OCR as OCR Service
-    participant LLMW as LLM Worker (API)
+    participant Whisper as Whisper Worker
+    participant OCR as OCR Worker
+    participant LLMW as LLM Worker (API process)
     participant Ollama as Ollama LLM
-    participant Persist as Persistence Worker (API)
+    participant Persist as Persistence Worker (API process)
     participant DB as PostgreSQL 15
 
     alt Voice / Audio Note
         User->>TG: Send Voice Note / Audio
-        TG->>TG: Download media to shared volume
-        TG->>Kafka: Publish to audio-ingestion-events
-        TG-->>User: Status: "Queued for processing..."
+        TG-->>User: Status message: "Received audio! Queueing…"
+        TG->>Vol: Download media (tg-voice-*.ogg)
+        TG->>Kafka: Publish audio-ingestion-events { filePath, chatId, statusMsgId }
+        TG-->>User: Edit status: "Queued for processing!"
         Kafka->>Whisper: Consume audio-ingestion-events
+        Whisper->>Vol: Read filePath
         Whisper->>Whisper: Transcribe audio (tiny.en)
-        Whisper->>Kafka: Publish to text-extracted-events
+        Whisper->>Kafka: Publish text-extracted-events { rawText, whisperMs }
     else Receipt Photo / Bill
         User->>TG: Send Photo of Receipt
-        TG->>TG: Download media to shared volume
-        TG->>Kafka: Publish to image-ingestion-events
-        TG-->>User: Status: "Queued for processing..."
+        TG-->>User: Status message: "Received photo! Queueing…"
+        TG->>Vol: Download largest photo size (tg-photo-*.jpg)
+        TG->>Kafka: Publish image-ingestion-events { filePath, chatId, statusMsgId }
+        TG-->>User: Edit status: "Queued for processing!"
         Kafka->>OCR: Consume image-ingestion-events
+        OCR->>Vol: Read filePath
         OCR->>OCR: Run PP-OCRv4 + regex decimal fix
-        OCR->>Kafka: Publish to text-extracted-events
+        OCR->>Kafka: Publish text-extracted-events { rawText, ocrMs }
     else Direct Text
         User->>TG: Send text: "Spent 450 on fuel via HDFC"
-        TG->>Kafka: Publish to text-extracted-events
-        TG-->>User: Status: "Queued for processing..."
+        TG->>DB: INSERT telegram_raw_messages (audit log)
+        TG-->>User: Status message: "Queued for processing!"
+        TG->>Kafka: Publish text-extracted-events { rawText }
     end
 
     Kafka->>LLMW: Consume text-extracted-events
-    LLMW->>TG: Update status: "Extracting details with local LLM..."
-    LLMW->>Ollama: Generate JSON extraction (with dynamic accounts & categories)
-    Ollama-->>LLMW: { amount: 450, category: "Transport", account: "HDFC Bank", type: "expense" }
-    LLMW->>Kafka: Publish to expense-structured-events
+    LLMW->>TG: Edit status: "Extracting expense details with local LLM…"
+    LLMW->>Ollama: /api/chat (prompt with in-memory accounts & categories, format: json)
+    Ollama-->>LLMW: { amount: 450, category: "Transport", account: "hdfc", transaction_type: "expense" }
+    LLMW->>LLMW: normalizeExtracted() — regex guardrails for amount / type
+    LLMW->>Kafka: Publish expense-structured-events { extractedData, llmMs }
 
     Kafka->>Persist: Consume expense-structured-events
-    Persist->>DB: INSERT into expenses & update balances
-    DB-->>Persist: Saved transaction
-    Persist->>TG: Edit message with summary card, timing breakdown & action buttons
+    alt No amount, or invalid transfer
+        Persist->>TG: Edit status: "⚠️ Couldn't detect a transaction amount"
+    else Valid extraction
+        Persist->>Persist: Resolve account / to_account / category (in-memory cache, default fallback)
+        Persist->>DB: INSERT INTO expenses
+        DB-->>Persist: Saved row (id)
+        Persist->>TG: Edit status → summary card + timing breakdown + inline buttons
+    end
     TG-->>User: 💸 Transaction Recorded! [🗑️ Delete] [✏️ Correct]
 ```
 
-### 2. 💻 Synchronous Web Client Pipeline
+### 2. 🎛️ Telegram Inline Actions (Direct, no Kafka)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User (Telegram)
+    participant TG as Telegram Bot (API process)
+    participant Ollama as Ollama LLM
+    participant DB as PostgreSQL 15
+
+    alt 🗑️ Delete
+        User->>TG: callback_query delete_{id}
+        TG->>DB: DELETE FROM expenses WHERE id
+        TG-->>User: Edit message: "Transaction #id deleted."
+    else ✏️ Correct
+        User->>TG: callback_query edit_{id}
+        TG->>TG: pendingCorrections.set(chatId, id)
+        TG-->>User: "Send your correction for Transaction #id"
+        User->>TG: Text: "Amount is 500, category Food"
+        TG->>DB: SELECT current expense
+        TG->>Ollama: /api/chat (existing row + correction text)
+        Ollama-->>TG: Updated fields JSON
+        TG->>TG: Resolve account / category
+        TG->>DB: UPDATE expenses SET …
+        TG-->>User: "✅ Transaction #id Updated!"
+    end
+```
+
+### 3. 💻 Synchronous Web Client Pipeline
+
+The whole pipeline runs inside one HTTP request. Kafka is not involved.
 
 ```mermaid
 sequenceDiagram
@@ -124,20 +197,25 @@ sequenceDiagram
     actor User as User (Browser)
     participant Web as React Web Client
     participant API as Express API
+    participant Vol as ./uploads (shared volume)
     participant Whisper as Whisper Service
     participant Ollama as Ollama LLM
     participant DB as PostgreSQL 15
 
     User->>Web: Record Voice Transaction & Click Stop
     Web->>API: POST /api/expenses/upload-audio (multipart/form-data)
+    API->>Vol: multer saves audio-*.webm
     API->>Whisper: POST /transcribe { audio_path }
+    Whisper->>Vol: Read audio_path
     Whisper-->>API: Transcribed Text
-    API->>Ollama: POST /api/chat (JSON structured extraction)
+    API->>API: Reject silence / empty transcript (400)
+    API->>Ollama: POST /api/chat (prompt with accounts & categories, format: json)
     Ollama-->>API: Extracted Transaction Data
+    API->>API: Regex guardrails + resolve account / category, validate transfer
     API->>DB: INSERT INTO expenses (...)
     DB-->>API: Saved Record
     API-->>Web: JSON Response with Created Expense
-    Web-->>User: Update Balance & Transactions list in real-time
+    Web-->>User: Refresh balances & transactions list
 ```
 
 ---
@@ -316,8 +394,8 @@ Base URL: `http://localhost:9088/api`
 - `PUT /api/categories/:id`: Update category name, emoji, or subcategories.
 - `DELETE /api/categories/:id`: Delete category.
 
-### 🤖 Telegram Webhook (`/api/telegram`)
-- `POST /api/telegram/webhook`: Webhook endpoint for production Telegram deployments (alternative to long-polling mode).
+### 🤖 Telegram
+By default the bot uses long polling and pulls updates from Telegram itself. An optional `POST /api/telegram/webhook` endpoint is also available for webhook-based deployments.
 
 ---
 

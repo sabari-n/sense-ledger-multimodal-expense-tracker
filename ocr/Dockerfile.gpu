@@ -1,0 +1,12 @@
+# NVIDIA build, used when AI_DEVICE=nvidia. The base image ships PaddlePaddle 2.6.2 and CUDA 12.
+FROM paddlepaddle/paddle:2.6.2-gpu-cuda12.0-cudnn8.9-trt8.6
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir paddleocr==2.8.1 flask kafka-python-ng
+
+COPY ocr_service.py .
+
+EXPOSE 5001
+
+CMD ["python", "ocr_service.py"]

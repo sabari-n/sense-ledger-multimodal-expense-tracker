@@ -1,0 +1,60 @@
+# AI_DEVICE=nvidia: Linux or Windows (WSL2) with the NVIDIA Container Toolkit.
+# Set WHISPER_DEVICE=cpu or OCR_DEVICE=cpu in .env to keep one service off the GPU.
+
+services:
+  ollama:
+    cpus: 3.5
+    mem_limit: 4g
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 4G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  api:
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+
+  whisper:
+    build:
+      context: ../whisper
+      args:
+        TORCH_VARIANT: cu126
+    environment:
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+    cpus: 3.5
+    mem_limit: 4g
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 4G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ocr:
+    build:
+      context: ../ocr
+      dockerfile: Dockerfile.gpu
+    environment:
+      OCR_DEVICE: ${OCR_DEVICE:-cuda}
+    cpus: 3.5
+    mem_limit: 4g
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 4G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

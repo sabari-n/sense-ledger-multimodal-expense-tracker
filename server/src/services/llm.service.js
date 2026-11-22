@@ -15,6 +15,7 @@ import {
   matchCategoryKeyword,
   matchSubcategory,
   matchAccountAlias,
+  accountsFromText,
   isIncomeCategory,
   DEFAULT_INCOME_CATEGORY,
   CATEGORY_PATTERNS,
@@ -32,14 +33,118 @@ function getDuration(start) {
   return diff[0] + diff[1] / 1e9;
 }
 
+export const TRANSFER_NEEDS_TWO_ACCOUNTS =
+  'A transfer needs two different accounts, e.g. "transfer 1000 from Union Bank to ICICI".';
+
+const sameAccount = (a, b) =>
+  (matchAccountAlias(a) || a || '').toLowerCase() === (matchAccountAlias(b) || b || '').toLowerCase();
+
+/**
+ * Final checks shared by every extraction path. Small models copy the system
+ * prompt's {"error": "No transaction detected"} even when they found an amount,
+ * so an error is only kept when there is no amount or the transfer is incomplete.
+ */
+function finalizeExtraction(parsed) {
+  if (parsed.amount) delete parsed.error;
+  if (
+    parsed.amount &&
+    parsed.transaction_type === TRANSACTION_TYPES.TRANSFER &&
+    (!parsed.to_account || sameAccount(parsed.account, parsed.to_account))
+  ) {
+    parsed.error = TRANSFER_NEEDS_TWO_ACCOUNTS;
+  }
+  return parsed;
+}
+
 // Regex to detect digits, currency symbols, and monetary/number words in speech or text
 export const NUMBER_OR_MONETARY_REGEX = /\b(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|lakhs?|lacs?|crores?|millions?|billions?|grand|bucks?|rupees?|rs|inr|dollars?|cents?|euros?|pounds?|k)\b|[₹$€£¥]/i;
+
+const NUMBER_WORDS = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+const SCALE_WORDS = {
+  hundred: 100, thousand: 1e3, k: 1e3, grand: 1e3,
+  lakh: 1e5, lakhs: 1e5, lac: 1e5, lacs: 1e5, million: 1e6, crore: 1e7, crores: 1e7,
+};
+const CURRENCY_WORDS = new Set(['rupee', 'rupees', 'rs', 'inr', 'bucks', 'buck', '₹']);
+
+/**
+ * Find numbers spoken as words or digits+scale ("two thousand", "2 thousand",
+ * "1.5 lakh", "5k", "twenty five rupees"). Whisper often writes amounts this way.
+ * Returns each run with whether it has a digit, a scale word, or a currency word next to it.
+ */
+export function parseSpokenAmounts(text) {
+  if (!text) return [];
+  const tokens = text.toLowerCase().replace(/₹/g, ' ₹ ').replace(/,/g, '').split(/[\s\-]+/)
+    .map((t) => t.replace(/[^a-z0-9.₹]/g, '').replace(/\.$/, ''))
+    .filter(Boolean);
+
+  const runs = [];
+  let run = null;
+  const close = (i) => {
+    if (run && run.used) {
+      const next = tokens[i];
+      const prev = tokens[run.start - 1];
+      runs.push({
+        value: run.total + run.current,
+        hasDigit: run.hasDigit,
+        hasScale: run.hasScale,
+        nearCurrency: CURRENCY_WORDS.has(next) || CURRENCY_WORDS.has(prev),
+      });
+    }
+    run = null;
+  };
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    const kMatch = tok.match(/^(\d+(?:\.\d+)?)k$/);
+    const isDigit = /^\d+(?:\.\d+)?$/.test(tok);
+    // "a"/"an" counts as 1 only directly before a scale word ("a thousand")
+    const isArticle = (tok === 'a' || tok === 'an') && SCALE_WORDS[tokens[i + 1]] && tokens[i + 1] !== 'k';
+    const isPart = isDigit || kMatch || tok in NUMBER_WORDS || tok in SCALE_WORDS || isArticle || (tok === 'and' && run?.used);
+
+    if (!isPart) { close(i); continue; }
+    const newRun = () => ({ start: i, total: 0, current: 0, used: false, hasDigit: false, hasScale: false, last: null });
+    if (!run) run = newRun();
+
+    if (tok === 'and') { run.last = 'and'; continue; }
+
+    if (kMatch) {
+      if (run.used) { close(i); run = newRun(); }
+      run.total += parseFloat(kMatch[1]) * 1e3; run.used = run.hasDigit = run.hasScale = true; run.last = 'scale';
+    } else if (isDigit || tok in NUMBER_WORDS || isArticle) {
+      const value = isDigit ? parseFloat(tok) : (isArticle ? 1 : NUMBER_WORDS[tok]);
+      // A value continues the number only after a scale word or "and" ("two thousand five",
+      // "hundred and fifty") or as the unit after a tens word ("twenty five").
+      // Otherwise ("500 200", "two three") it starts a new number.
+      const continues = !run.used || run.last === 'scale' || run.last === 'and' ||
+        (run.last === 'tens' && !isDigit && value < 10);
+      if (!continues) { close(i); run = newRun(); }
+      run.current += value;
+      run.used = true; run.hasDigit ||= isDigit;
+      run.last = isDigit ? 'digit' : (value >= 20 && value % 10 === 0 ? 'tens' : 'unit');
+    } else if (tok in SCALE_WORDS) {
+      if (!run.used && tok === 'k') { close(i); continue; }
+      const scale = SCALE_WORDS[tok];
+      if (scale === 100) run.current = (run.current || 1) * 100;
+      else { run.total += (run.current || 1) * scale; run.current = 0; }
+      run.used = run.hasScale = true; run.last = 'scale';
+    }
+  }
+  close(tokens.length);
+  return runs.filter((r) => r.value > 0);
+}
 
 /**
  * Extract numerical amount from value or raw speech/text/OCR receipt.
  */
 export function extractAmount(val, rawText) {
   let textAmount = null;
+  const spoken = parseSpokenAmounts(rawText);
+  const hasBareDigits = rawText ? /\d/.test(rawText) : false;
   if (rawText) {
     // Handle split speech-to-text numbers like "30,000 100" -> 30100 or "1,000 500" -> 1500
     const splitMatch = rawText.match(/\b(\d{1,3}(?:,\d{3})+)\s+(\d{1,3})\b/);
@@ -49,17 +154,42 @@ export function extractAmount(val, rawText) {
       if (!isNaN(base) && !isNaN(extra)) textAmount = base + extra;
     }
     if (!textAmount) {
-      // For receipt/invoice OCR: prioritize "Total:", "Value:", "Grand Total:", "Charges:" amounts
-      const receiptMatch = rawText.match(/(?:total|grand\s*total|value|charges)\s*[:=]?\s*([\d,]+(?:\.\d+)?)/im);
-      if (receiptMatch) {
-        const num = parseFloat(receiptMatch[1].replace(/,/g, ''));
+      // For receipt/invoice OCR, in priority order:
+      //  1. the final payable line ("Bill Total", "Grand Total", "To Pay", "Amount Paid", ...)
+      //  2. the last plain "Total" that isn't an "Item Total" / "Sub Total" (those come before discounts and fees)
+      //  3. "Value:" / "Charges:"
+      const num = (s) => parseFloat(s.replace(/,/g, ''));
+      const AMT = String.raw`\s*[:=]?\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d+)?)`;
+      const finalTotal = rawText.match(new RegExp(
+        String.raw`(?:bill\s*total|grand\s*total|net\s*(?:total|payable|amount)|total\s*(?:payable|paid|due|amount)|amount\s*(?:paid|payable|due)|to\s*pay)` + AMT, 'i'));
+      const plainTotals = [...rawText.matchAll(new RegExp(String.raw`(?<!(?:item|sub)[\s-]?)\btotal` + AMT, 'gi'))];
+      const other = rawText.match(new RegExp(String.raw`(?:value|charges)` + AMT, 'i'));
+      const receiptAmount = finalTotal ? num(finalTotal[1])
+        : plainTotals.length ? num(plainTotals[plainTotals.length - 1][1])
+        : other ? num(other[1]) : null;
+      if (receiptAmount && !isNaN(receiptAmount) && receiptAmount > 0) textAmount = receiptAmount;
+    }
+    // Spoken/scaled number right next to a currency word: "two thousand rupees", "2 thousand rs"
+    if (!textAmount) {
+      const withCurrency = spoken.find((r) => r.nearCurrency && (r.hasScale || !r.hasDigit));
+      if (withCurrency) textAmount = withCurrency.value;
+    }
+    if (!textAmount) {
+      const match = rawText.match(/(?:amount|rs|inr|rupees|₹|\$)\s*[:=]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)(?!\s*(?:k\b|hundred|thousand|lakhs?|lacs?|crores?|million))/i) ||
+        rawText.match(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:rs|inr|rupees|₹|\$)/i);
+      if (match) {
+        const num = parseFloat(match[1].replace(/,/g, ''));
         if (!isNaN(num) && num > 0) textAmount = num;
       }
     }
+    // Scaled number without a currency word: "spent two thousand", "5k", "1.5 lakh".
+    // A words-only run is skipped when the text also has plain digits ("300 for two hundred grams").
     if (!textAmount) {
-      const match = rawText.match(/(?:amount|rs|inr|rupees|₹|\$)\s*[:=]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)/i) ||
-        rawText.match(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)\s*(?:rs|inr|rupees|₹|\$|k\b)/i) ||
-        rawText.match(/\b(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\b/);
+      const scaled = spoken.find((r) => r.hasScale && (r.hasDigit || !hasBareDigits));
+      if (scaled) textAmount = scaled.value;
+    }
+    if (!textAmount) {
+      const match = rawText.match(/\b(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\b/);
       if (match) {
         const num = parseFloat(match[1].replace(/,/g, ''));
         if (!isNaN(num) && num > 0) textAmount = num;
@@ -118,10 +248,10 @@ export function normalizeExtracted(parsed, rawText = '') {
   if (parsed.$schema || (parsed.properties && !parsed.amount)) {
     logger.warn('[Ollama] LLM returned schema definition instead of values. Falling back to heuristic text extraction.');
     const amount = extractAmount(null, rawText);
-    const account = matchAccountAlias(rawText) || env.defaults?.account;
     const detectedIntent = detectIntent(rawText);
     const isIncome = detectedIntent === TRANSACTION_TYPES.INCOME;
     const isTransfer = detectedIntent === TRANSACTION_TYPES.TRANSFER;
+    const textAccounts = accountsFromText(rawText, isTransfer);
 
     const matchedCategory = matchCategoryKeyword(rawText);
     const fallbackCategory = isIncome
@@ -129,15 +259,15 @@ export function normalizeExtracted(parsed, rawText = '') {
       : (isTransfer ? DEFAULT_FALLBACK_CATEGORIES.TRANSFER : (matchedCategory || DEFAULT_FALLBACK_CATEGORIES.EXPENSE));
     const matchedSubcategory = matchedCategory ? matchSubcategory(matchedCategory, rawText) : '';
 
-    return {
+    return finalizeExtraction({
       amount,
       category: fallbackCategory,
       subcategory: matchedSubcategory,
-      account,
-      to_account: null,
+      account: textAccounts.account || env.defaults?.account,
+      to_account: textAccounts.to_account || null,
       transaction_type: isIncome ? TRANSACTION_TYPES.INCOME : (isTransfer ? TRANSACTION_TYPES.TRANSFER : TRANSACTION_TYPES.EXPENSE),
       ...(amount === null ? { error: 'No transaction detected' } : {}),
-    };
+    });
   }
 
   // Sanitize and ensure valid numerical amount
@@ -165,7 +295,13 @@ export function normalizeExtracted(parsed, rawText = '') {
     parsed.transaction_type = TRANSACTION_TYPES.EXPENSE;
   }
 
-  if (parsed.transaction_type === TRANSACTION_TYPES.TRANSFER) {
+  // Accounts named in the text beat the LLM's guess; small models tend to
+  // default to the first account in the prompt's examples.
+  const isTransfer = parsed.transaction_type === TRANSACTION_TYPES.TRANSFER;
+  Object.assign(parsed, accountsFromText(rawText, isTransfer));
+  if (!isTransfer) parsed.to_account = null;
+
+  if (isTransfer) {
     parsed.category = null;
     parsed.subcategory = null;
   } else {
@@ -192,7 +328,7 @@ export function normalizeExtracted(parsed, rawText = '') {
     }
   }
 
-  return parsed;
+  return finalizeExtraction(parsed);
 }
 
 /**

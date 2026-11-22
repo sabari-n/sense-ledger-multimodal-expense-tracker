@@ -6,8 +6,10 @@ WORKDIR /app
 
 COPY --from=ffmpeg-stage /ffmpeg /usr/local/bin/
 
-# Install CPU-only PyTorch (avoids 3GB+ CUDA wheels) then whisper & dependencies
-RUN pip install --no-cache-dir torch --extra-index-url https://download.pytorch.org/whl/cpu && \
+# PyTorch build: "cpu" avoids the 3GB+ CUDA wheels, "cu126" is used when AI_DEVICE=nvidia
+ARG TORCH_VARIANT=cpu
+
+RUN pip install --no-cache-dir torch --extra-index-url https://download.pytorch.org/whl/${TORCH_VARIANT} && \
     pip install --no-cache-dir openai-whisper flask kafka-python-ng
 
 COPY transcriber.py .

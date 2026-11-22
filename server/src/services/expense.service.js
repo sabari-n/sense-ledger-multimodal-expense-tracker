@@ -6,8 +6,19 @@ import { extractWithLLM } from './llm.service.js';
 
 import { EXPENSE_PROMPT, SILENCE_PATTERNS } from '../utils/constants.js';
 import { AppError } from '../errors/AppError.js';
-import { VALIDATION_ERROR } from '../errors/errorCodes.js';
+import { VALIDATION_ERROR, NOT_FOUND } from '../errors/errorCodes.js';
 import { logger } from '../config/logger.js';
+
+// A transfer without a distinct destination would debit one account and credit none.
+function assertValidTransfer(txType, account, toAccount) {
+  if (txType === 'transfer' && (!toAccount || toAccount === account)) {
+    throw new AppError(
+      'A transfer needs a known to_account different from the source account.',
+      VALIDATION_ERROR.status,
+      VALIDATION_ERROR.code
+    );
+  }
+}
 
 // ─── Audio Pipeline ───────────────────────────────────────────────────────────
 
@@ -45,6 +56,7 @@ export async function processAudioExpense(audioPath) {
   const resolvedAccount = await resolveAccountName(extracted.account);
   const resolvedToAccount = extracted.to_account ? await resolveAccountName(extracted.to_account, false) : null;
   const resolvedCategory = await resolveCategoryName(extracted.category, txType);
+  assertValidTransfer(txType, resolvedAccount, resolvedToAccount);
 
   return expenseRepo.create({
     original_text:    transcribedText,
@@ -69,6 +81,7 @@ export async function createExpense(data) {
   const resolvedAccount = await resolveAccountName(account);
   const resolvedToAccount = to_account ? await resolveAccountName(to_account, false) : null;
   const resolvedCategory = await resolveCategoryName(category, txType);
+  assertValidTransfer(txType, resolvedAccount, resolvedToAccount);
 
   return expenseRepo.create({
     original_text:    original_text    || 'Manual Entry',
@@ -82,6 +95,9 @@ export async function createExpense(data) {
 }
 
 export async function updateExpense(id, data) {
+  if (!(await expenseRepo.findById(id))) {
+    throw new AppError(`Transaction ${id} not found.`, NOT_FOUND.status, NOT_FOUND.code);
+  }
   const { amount, category, subcategory, transaction_type, account, to_account } = data;
   const updatePayload = {
     amount,

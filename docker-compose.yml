@@ -17,20 +17,20 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
 
+  # AI_DEVICE in .env (cpu, metal or nvidia) selects devices/<value>.yml, which
+  # sets the build, device, resources and Ollama address for the AI services.
   ollama:
+    extends:
+      file: devices/${AI_DEVICE:-cpu}.yml
+      service: ollama
     image: ollama/ollama
     container_name: expense-ollama
     restart: always
-    cpus: 3.5
-    mem_limit: 2500m
-    deploy:
-      resources:
-        limits:
-          cpus: '3.5'
-          memory: 2500M
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
     volumes:
       - ollama_data:/root/.ollama
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && (ollama list | grep -q 'llama3.2:1b' || ollama pull llama3.2:1b) && wait"]
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && (ollama list | grep -q \"$$OLLAMA_MODEL\" || ollama pull \"$$OLLAMA_MODEL\") && wait"]
 
   kafka:
     image: apache/kafka:latest
@@ -79,6 +79,9 @@ services:
       - "8090:8080"
 
   api:
+    extends:
+      file: devices/${AI_DEVICE:-cpu}.yml
+      service: api
     build: ./server
     container_name: expense-api
     restart: always
@@ -92,7 +95,6 @@ services:
       KAFKA_BROKERS: kafka:9092
       WHISPER_URL: http://whisper:5000/transcribe
       OCR_URL: http://ocr:5001/ocr
-      OLLAMA_HOST: http://ollama:11434
     cpus: 1.0
     mem_limit: 350m
     deploy:
@@ -111,18 +113,13 @@ services:
       - ./server/src:/app/src
 
   whisper:
-    build: ./whisper
+    extends:
+      file: devices/${AI_DEVICE:-cpu}.yml
+      service: whisper
     container_name: expense-whisper
     restart: always
     env_file:
       - .env
-    cpus: 3.5
-    mem_limit: 1000m
-    deploy:
-      resources:
-        limits:
-          cpus: '3.5'
-          memory: 1000M
     depends_on:
       - kafka
     environment:
@@ -131,21 +128,16 @@ services:
       - ./uploads:/app/uploads
       - ./whisper:/app
     ports:
-      - "5000:5000"
+      - "${WHISPER_HOST_PORT:-5000}:5000"
 
   ocr:
-    build: ./ocr
+    extends:
+      file: devices/${AI_DEVICE:-cpu}.yml
+      service: ocr
     container_name: expense-ocr
     restart: always
     env_file:
       - .env
-    cpus: 3.5
-    mem_limit: 1800m
-    deploy:
-      resources:
-        limits:
-          cpus: '3.5'
-          memory: 1800M
     depends_on:
       - kafka
     environment:
@@ -181,7 +173,6 @@ services:
     restart: always
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro

@@ -111,8 +111,15 @@ export async function transferBetweenAccounts(data) {
     throw new AppError('from_account, to_account, and amount are required.', VALIDATION_ERROR.status, VALIDATION_ERROR.code);
   }
 
-  const fromAcc = await accountRepo.resolveAccountName(from_account);
-  const toAcc = await accountRepo.resolveAccountName(to_account);
+  // No default-account fallback: an unknown name must not silently become the default account.
+  const fromAcc = await accountRepo.resolveAccountName(from_account, false);
+  const toAcc = await accountRepo.resolveAccountName(to_account, false);
+  if (!fromAcc || !toAcc) {
+    throw new AppError(`Unknown account: ${!fromAcc ? from_account : to_account}.`, NOT_FOUND.status, NOT_FOUND.code);
+  }
+  if (fromAcc === toAcc) {
+    throw new AppError('Cannot transfer to the same account.', VALIDATION_ERROR.status, VALIDATION_ERROR.code);
+  }
   const transferCategory = await resolveCategoryName('Transfer', 'transfer');
 
   await expenseRepo.create({

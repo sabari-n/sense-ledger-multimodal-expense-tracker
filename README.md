@@ -22,20 +22,69 @@ SenseLedger is a full-stack, 100% local, multi-modal AI expense tracker designed
 
 ## 🏛️ System Architecture
 
-SenseLedger uses a decoupled microservices architecture with a hybrid synchronous REST and asynchronous Kafka event streaming pipeline:
+SenseLedger has two paths into the same database:
 
+- **Sync path (REST)** — the Web UI reads and edits data through the Express API. A voice recording from the Web UI is processed inline in the request (Whisper over HTTP → Ollama → PostgreSQL) without Kafka.
+- **Async path (Kafka)** — Telegram messages (voice, photo, text) go through an event pipeline. Every input is first turned into **plain text**, then the LLM turns that text into a **structured transaction**, which is then saved.
+
+The Telegram bot, the LLM consumer and the persistence consumer all run **inside the Express API process**. Media files are passed between containers through the shared `./uploads` volume: Kafka events carry only the file path.
+
+```mermaid
+flowchart TD
+    WEB["📱 Web UI<br/>React 19"]
+    TGU["💬 Telegram chat"]
+
+    subgraph APIBOX["🚀 Express API :9088 — one Node.js process"]
+        REST["REST API"]
+        BOT["🤖 Telegram bot<br/>(long polling)"]
+        LLM["🧠 LLM consumer<br/>+ regex guardrails"]
+        PERS["💾 Persistence consumer<br/>resolve account / category"]
+    end
+
+    subgraph KAFKA["⚡ Kafka :9092"]
+        TA(["audio-ingestion-events"])
+        TI(["image-ingestion-events"])
+        T1(["text-extracted-events"])
+        T2(["expense-structured-events"])
+    end
+
+    WH["🎙️ Whisper :5000<br/>speech → text"]
+    OCR["📸 PaddleOCR :5001<br/>receipt → text"]
+    OLL["Ollama :11434<br/>llama3.2:1b"]
+    DB[("🐘 PostgreSQL<br/>:6033")]
+
+    %% Sync path (Web UI)
+    WEB -->|"REST /api/*"| REST
+    REST -->|"🎙️ upload-audio<br/>POST /transcribe"| WH
+    REST <-->|"prompt / JSON"| OLL
+    REST -->|"CRUD"| DB
+
+    %% Async path (Telegram)
+    TGU <-->|"Telegram Bot API"| BOT
+    BOT -->|"🎙️ voice / audio"| TA --> WH
+    BOT -->|"📸 photo"| TI --> OCR
+    BOT -->|"💬 text"| T1
+    WH -->|"transcript"| T1
+    OCR -->|"receipt text"| T1
+    T1 --> LLM
+    LLM <-->|"prompt / JSON"| OLL
+    LLM --> T2 --> PERS
+    PERS -->|"INSERT"| DB
+    PERS -->|"✅ summary + 🗑️ Delete / ✏️ Correct"| BOT
+    BOT -.->|"🗑️ delete · ✏️ correct<br/>(direct, no Kafka)"| DB
+
+    classDef topic fill:#fff4d6,stroke:#d4a017,color:#333
+    class TA,TI,T1,T2 topic
 ```
-📱 Web Client (React 19) ─────────┐
-                                  ├──► 🚀 Express API (9088) ──► 🐘 PostgreSQL (6033)
-🤖 Telegram Bot (Voice/Photo/Text) ─┤           │
-                                  │           ▼
-                                  └──► ⚡ Apache Kafka (9092)
-                                                │
-                 ┌──────────────────────────────┼──────────────────────────────┐
-                 ▼                              ▼                              ▼
-        🎙️ Whisper (5000)               📸 PaddleOCR (5001)           🧠 Ollama LLM (11434)
-      (audio-ingestion-events)       (image-ingestion-events)       (text-extracted-events)
-```
+
+| Kafka topic | Produced by | Consumed by | Carries |
+| :--- | :--- | :--- | :--- |
+| `audio-ingestion-events` | Telegram handler | Whisper | Voice note file reference |
+| `image-ingestion-events` | Telegram handler | PaddleOCR | Receipt photo reference |
+| `text-extracted-events` | Whisper, OCR, Telegram (text) | LLM consumer | Raw text |
+| `expense-structured-events` | LLM consumer | Persistence consumer | Parsed transaction JSON |
+
+> **Why Kafka?** Transcription, OCR and LLM calls can take seconds (or ~25s on CPU). Queuing them keeps the bot and API responsive, and each stage can fail or scale independently.
 
 👉 For full architecture diagrams, sequence flows, Kafka topic schemas, and entity models, see **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
 
@@ -76,10 +125,30 @@ SenseLedger is engineered to run seamlessly on consumer hardware (16GB RAM lapto
 
 ### 🚀 Enabling GPU Acceleration (44x Faster Inference)
 
-- **macOS (Apple Silicon M1/M2/M3/M4 with Metal)**:
-  Run Ollama natively on macOS (`ollama serve`) and set `OLLAMA_HOST=http://host.docker.internal:11434` in `.env`. This enables Apple Metal GPU unified memory acceleration, slashing end-to-end voice-to-card latency from **~25s down to ~0.57s**.
-- **Linux / Windows (NVIDIA CUDA)**:
-  Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) and add GPU device reservations to `ollama` in `docker-compose.yml`.
+Set `AI_DEVICE` in `.env`, then run `docker compose up -d --build`. The default is `cpu`.
+
+- **macOS (Apple Silicon with Metal)**: `AI_DEVICE=metal`
+  Docker containers cannot use the Metal GPU, so install and start Ollama natively, then pull the model with `ollama pull llama3.2:1b`. The Ollama container is disabled, and Whisper and OCR stay on CPU. This slashes end-to-end voice-to-card latency from **~25s down to ~0.57s**.
+- **Linux / Windows (NVIDIA CUDA)**: `AI_DEVICE=nvidia`
+  Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Ollama, Whisper and OCR all use the GPU. Set `WHISPER_DEVICE=cpu` or `OCR_DEVICE=cpu` to keep one of them on CPU.
+
+### 🧠 LLM Model Comparison
+
+Extraction accuracy on 13 test cases (receipts, spoken amounts, transfers, card payments, income, and a greeting that must not be recorded), measured on an Apple M5 Pro with Metal and Ollama 0.40.
+
+| Model | Model alone | Saved result (after app's rules) | Median time |
+|---|---|---|---|
+| `llama3.2:1b` (default) | 0–2 / 13 | 10–11 / 13 | 1.1s |
+| `llama3.2:3b` | 1 / 13 | 11 / 13 | 2.8s |
+| **`gemma3:4b`** | **10 / 13** | **12 / 13** | **3.4s** |
+| `qwen2.5:7b` | 9 / 13 | 12 / 13 | 5.5s |
+| `llama3.1:8b` | 11 / 13 | 12 / 13 | 6.3s |
+
+- **Model alone** scores the model's raw JSON. **Saved result** scores what the app stores after its rule-based corrections (amounts, accounts, transaction type and category keywords).
+- `gemma3:4b` gives the best accuracy for its speed. To use it, set `OLLAMA_MODEL=gemma3:4b` in `.env` and run `docker compose up -d --force-recreate api`.
+- Scores vary by about ±1 between runs, because model output isn't fully deterministic.
+
+Run it yourself with `./benchmarks/llm/run.sh <model> [model...]`. See **[benchmarks/llm/README.md](./benchmarks/llm/README.md)**.
 
 ---
 

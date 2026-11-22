@@ -27,3 +27,6 @@ server/uploads/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# LLM benchmark output
+benchmarks/llm/results/

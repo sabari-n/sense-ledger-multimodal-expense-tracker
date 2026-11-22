@@ -1,0 +1,34 @@
+8:42
+(13
+Order #100000000000001
+HELP
+Delivered,4 Items,125.00
+Sample Cafe
+Example Street, Sample Nagar, Bengaluru,Karnata..
+Home
+12A Example Apartments, Sample Road
+Bangalore, Karnataka 560000,India.
+Order delivered on 13 Aug2026,06:53 pm
+ONTIME
+by Delivery Partner
+BILL DETAILS
+Chicken Cutlet1Pcsx1.33
+Chicken Samosa3 pcsx1.59
+Chicken Spring Roll (1Pcs)x1.33
+Pazham Pori (3 Piecesx1
+R55
+Item Total
+180
+Restaurant Packaging
+10
+Platform fee with GST
+17.58
+Discount Applied (SMASH)
+89.98
+Delivery Fee (FREE with Swiggy One)|5.5 kms
+66.0FREE
+Taxes
+7.85
+Paid Via Credit/Debit card
+Bill Total 125
+REORDER

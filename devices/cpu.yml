@@ -1,0 +1,44 @@
+# AI_DEVICE=cpu: every model runs on CPU inside Docker.
+
+services:
+  ollama:
+    cpus: 3.5
+    mem_limit: 2500m
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 2500M
+
+  api:
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+
+  whisper:
+    build:
+      context: ../whisper
+      args:
+        TORCH_VARIANT: cpu
+    environment:
+      WHISPER_DEVICE: cpu
+    cpus: 3.5
+    mem_limit: 1000m
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 1000M
+
+  ocr:
+    build:
+      context: ../ocr
+      dockerfile: Dockerfile
+    environment:
+      OCR_DEVICE: cpu
+    cpus: 3.5
+    mem_limit: 1800m
+    deploy:
+      resources:
+        limits:
+          cpus: '3.5'
+          memory: 1800M
