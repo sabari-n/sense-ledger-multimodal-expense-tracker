@@ -24,6 +24,10 @@ export default defineConfig(({ mode }) => {
     server: {
       host: '0.0.0.0',
       port: 5173,
+      // Docker bind mounts on macOS/Windows can drop file-change events, so edits
+      // silently don't reach the browser. Polling (enabled in docker-compose.override.yml)
+      // makes every save show up.
+      watch: env.VITE_USE_POLLING === 'true' ? { usePolling: true, interval: 5000 } : undefined,
       proxy: {
         '/api': {
           target: apiTarget,

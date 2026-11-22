@@ -17,7 +17,7 @@ export default function SideNav({ activeScreen, onNavigate, netBalance, totalInc
           <i className="fa-solid fa-coins"></i>
         </div>
         <div>
-          <span className="side-nav-brand-name">Spend<span className="brand-gold">Sync</span></span>
+          <span className="side-nav-brand-name">Sense<span className="brand-gold">Ledger</span></span>
           <span className="side-nav-brand-tagline">Money Manager</span>
         </div>
       </div>

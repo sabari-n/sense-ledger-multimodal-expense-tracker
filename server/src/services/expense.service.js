@@ -76,7 +76,7 @@ export async function getExpenses() {
 }
 
 export async function createExpense(data) {
-  const { amount, category, subcategory, transaction_type, account, to_account, original_text } = data;
+  const { amount, category, subcategory, transaction_type, account, to_account, original_text, date } = data;
   const txType = transaction_type || 'expense';
   const resolvedAccount = await resolveAccountName(account);
   const resolvedToAccount = to_account ? await resolveAccountName(to_account, false) : null;
@@ -91,30 +91,47 @@ export async function createExpense(data) {
     transaction_type: txType,
     account:          resolvedAccount,
     to_account:       resolvedToAccount,
+    ...(date ? { date: new Date(date) } : {}), // omitted -> the model's default, now
   });
 }
 
 export async function updateExpense(id, data) {
-  if (!(await expenseRepo.findById(id))) {
+  const existing = await expenseRepo.findById(id);
+  if (!existing) {
     throw new AppError(`Transaction ${id} not found.`, NOT_FOUND.status, NOT_FOUND.code);
   }
-  const { amount, category, subcategory, transaction_type, account, to_account } = data;
+  const { amount, category, subcategory, transaction_type, account, to_account, original_text, date } = data;
+  const txType = transaction_type || existing.transaction_type;
   const updatePayload = {
     amount,
     subcategory,
     transaction_type,
+    original_text,
+    date: date ? new Date(date) : undefined,
   };
 
-  if (category !== undefined) {
-    updatePayload.category = await resolveCategoryName(category, transaction_type);
+  if (category !== undefined || transaction_type !== undefined) {
+    updatePayload.category = await resolveCategoryName(category ?? existing.category, txType);
   }
   if (account !== undefined) {
     updatePayload.account = await resolveAccountName(account);
   }
-  if (to_account !== undefined) {
+  if (txType !== 'transfer') {
+    updatePayload.to_account = null; // only transfers have a destination
+  } else if (to_account !== undefined) {
     updatePayload.to_account = to_account ? await resolveAccountName(to_account, false) : null;
   }
 
+  if (txType === 'transfer') {
+    assertValidTransfer(
+      txType,
+      updatePayload.account ?? existing.account,
+      updatePayload.to_account !== undefined ? updatePayload.to_account : existing.to_account
+    );
+  }
+
+  // Drop fields the caller didn't send so they keep their current values.
+  Object.keys(updatePayload).forEach((k) => updatePayload[k] === undefined && delete updatePayload[k]);
   return expenseRepo.update(id, updatePayload);
 }
 

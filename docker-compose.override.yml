@@ -58,6 +58,7 @@ services:
       - "5173:5173"
     environment:
       VITE_API_TARGET: http://api:9088
+      VITE_USE_POLLING: "true"   # bind-mount file events are unreliable on macOS/Windows
     volumes:
       - ./client/src:/app/src
       - ./client/public:/app/public

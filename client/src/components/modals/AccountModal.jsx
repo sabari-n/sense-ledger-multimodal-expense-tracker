@@ -38,33 +38,35 @@ const muiSelectSx = {
 };
 
 const menuProps = {
-  PaperProps: {
-    sx: {
-      borderRadius: '14px',
-      boxShadow: '0 12px 40px rgba(10,92,68,0.16), 0 4px 16px rgba(0,0,0,0.08)',
-      border: '1px solid var(--border)',
-      mt: '4px',
-      '& .MuiMenuItem-root': {
-        fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif',
-        fontSize: '0.88rem',
-        fontWeight: 500,
-        color: 'var(--text-primary)',
-        borderRadius: '8px',
-        mx: '6px',
-        px: '12px',
-        py: '9px',
-        '&.Mui-selected': {
-          background: 'var(--primary-glow)',
-          color: 'var(--primary)',
-          fontWeight: 700,
+  slotProps: {
+    paper: {
+      sx: {
+        borderRadius: '14px',
+        boxShadow: '0 12px 40px rgba(10,92,68,0.16), 0 4px 16px rgba(0,0,0,0.08)',
+        border: '1px solid var(--border)',
+        mt: '4px',
+        '& .MuiMenuItem-root': {
+          fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif',
+          fontSize: '0.88rem',
+          fontWeight: 500,
+          color: 'var(--text-primary)',
+          borderRadius: '8px',
+          mx: '6px',
+          px: '12px',
+          py: '9px',
+          '&.Mui-selected': {
+            background: 'var(--primary-glow)',
+            color: 'var(--primary)',
+            fontWeight: 700,
+          },
+          '&:hover': { background: 'var(--surface-alt)' },
         },
-        '&:hover': { background: 'var(--surface-alt)' },
       },
     },
   },
 };
 
-export default function AccountModal({ data, onChange, onSave, onClose, currencySymbol = '₹' }) {
+export default function AccountModal({ data, onChange, onSave, onClose, onDelete, currencySymbol = '₹' }) {
   return (
     <div className="modal show" onClick={(e) => { if (e.target.className.includes('modal show')) onClose(); }}>
       <div className="modal-content">
@@ -129,6 +131,13 @@ export default function AccountModal({ data, onChange, onSave, onClose, currency
           </div>
 
           <button type="submit" className="submit-btn">Save Account</button>
+          {/* The default account can't be deleted: other accounts' transactions move to it. */}
+          {data.id && !data.is_default && onDelete && (
+            <button type="button" className="submit-btn delete-account-btn" onClick={() => onDelete(data.id)}>
+              <i className="fa-solid fa-trash" style={{ marginRight: 8 }}></i>
+              Delete Account
+            </button>
+          )}
         </form>
       </div>
     </div>

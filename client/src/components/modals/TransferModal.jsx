@@ -1,6 +1,7 @@
 import React from 'react';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import { localDateKey, withPickedDay } from '../../utils/format';
 
 const muiSelectSx = {
   width: '100%',
@@ -26,27 +27,29 @@ const muiSelectSx = {
 };
 
 const menuProps = {
-  PaperProps: {
-    sx: {
-      borderRadius: '14px',
-      boxShadow: '0 12px 40px rgba(10,92,68,0.16), 0 4px 16px rgba(0,0,0,0.08)',
-      border: '1px solid var(--border)',
-      mt: '4px',
-      '& .MuiMenuItem-root': {
-        fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif',
-        fontSize: '0.88rem',
-        fontWeight: 500,
-        color: 'var(--text-primary)',
-        borderRadius: '8px',
-        mx: '6px',
-        px: '12px',
-        py: '9px',
-        '&.Mui-selected': {
-          background: 'var(--primary-glow)',
-          color: 'var(--primary)',
-          fontWeight: 700,
+  slotProps: {
+    paper: {
+      sx: {
+        borderRadius: '14px',
+        boxShadow: '0 12px 40px rgba(10,92,68,0.16), 0 4px 16px rgba(0,0,0,0.08)',
+        border: '1px solid var(--border)',
+        mt: '4px',
+        '& .MuiMenuItem-root': {
+          fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif',
+          fontSize: '0.88rem',
+          fontWeight: 500,
+          color: 'var(--text-primary)',
+          borderRadius: '8px',
+          mx: '6px',
+          px: '12px',
+          py: '9px',
+          '&.Mui-selected': {
+            background: 'var(--primary-glow)',
+            color: 'var(--primary)',
+            fontWeight: 700,
+          },
+          '&:hover': { background: 'var(--surface-alt)' },
         },
-        '&:hover': { background: 'var(--surface-alt)' },
       },
     },
   },
@@ -97,6 +100,15 @@ export default function TransferModal({ data, accounts, onChange, onSave, onClos
             onChange={e => onChange({ ...data, amount: e.target.value })}
             required
             placeholder="0.00"
+          />
+
+          <label>Date</label>
+          <input
+            type="date"
+            value={localDateKey(data.date || new Date())}
+            max={localDateKey(new Date())}
+            onChange={e => { if (e.target.value) onChange({ ...data, date: withPickedDay(e.target.value, data.date) }); }}
+            required
           />
 
           <label>Note (optional)</label>

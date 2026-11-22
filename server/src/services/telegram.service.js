@@ -9,7 +9,10 @@ import { saveRawMessage } from '../repositories/telegram.repository.js';
 import * as expenseRepo from '../repositories/expense.repository.js';
 import { resolveAccountName } from '../repositories/account.repository.js';
 import { resolveCategoryName } from '../repositories/category.repository.js';
-import { extractWithLLM } from './llm.service.js';
+import { extractWithLLM, NUMBER_OR_MONETARY_REGEX } from './llm.service.js';
+import { accountsFromText, detectIntent, matchCategoryKeyword, matchSubcategory } from '../utils/heuristics.js';
+import { transcribeAudio } from './audio.service.js';
+import { SILENCE_PATTERNS } from '../utils/constants.js';
 import { logger } from '../config/logger.js';
 
 import { env } from '../config/env.js';
@@ -146,6 +149,42 @@ async function processPhotoFile({ chatId, fileId }) {
 // Pending Correction Processor
 // ─────────────────────────────────────────────
 
+/**
+ * Turn an extracted correction into the fields to update, changing only what the
+ * correction text actually mentions. The extraction always fills every field (a default
+ * account, "Other" when no category keyword is found, "expense" as the type), so copying
+ * it all would overwrite fields the user didn't touch: "amount is 500" would also reset
+ * Food to Other and the account to Union Bank.
+ */
+export async function buildCorrectionUpdate(currentExpense, updatedData, correctionText) {
+  const lower = correctionText.toLowerCase();
+  const mentions = (value) => !!value && lower.includes(String(value).toLowerCase());
+
+  const amountMentioned = NUMBER_OR_MONETARY_REGEX.test(correctionText) && updatedData.amount;
+
+  const textAccount = accountsFromText(correctionText).account;
+  const accountMentioned = textAccount || (mentions(updatedData.account) ? updatedData.account : null);
+
+  const typeMentioned = detectIntent(correctionText) || /\b(income|expense|transfer)\b/.test(lower);
+  const txType = typeMentioned && updatedData.transaction_type
+    ? updatedData.transaction_type
+    : currentExpense.transaction_type;
+
+  const categoryMentioned = matchCategoryKeyword(correctionText) || mentions(updatedData.category);
+
+  return {
+    amount: amountMentioned ? updatedData.amount : currentExpense.amount,
+    category: categoryMentioned && updatedData.category
+      ? await resolveCategoryName(updatedData.category, txType)
+      : currentExpense.category,
+    subcategory: categoryMentioned
+      ? (updatedData.subcategory || '')
+      : (matchSubcategory(currentExpense.category, correctionText) || currentExpense.subcategory),
+    transaction_type: txType,
+    account: accountMentioned ? await resolveAccountName(accountMentioned) : currentExpense.account,
+  };
+}
+
 async function handleExpenseCorrection(chatId, correctionText) {
   const expenseId = pendingCorrections.get(chatId);
   pendingCorrections.delete(chatId);
@@ -171,22 +210,10 @@ async function handleExpenseCorrection(chatId, correctionText) {
     const updatedData = await extractWithLLM(correctionText, prompt);
     console.log('updatedData', updatedData)
 
-    const resolvedAccount = updatedData.account
-      ? await resolveAccountName(updatedData.account)
-      : currentExpense.account;
-
-    const txType = updatedData.transaction_type || currentExpense.transaction_type;
-    const resolvedCategory = updatedData.category
-      ? await resolveCategoryName(updatedData.category, txType)
-      : currentExpense.category;
-
-    const updatedExpense = await expenseRepo.update(expenseId, {
-      amount: updatedData.amount || currentExpense.amount,
-      category: resolvedCategory,
-      subcategory: updatedData.subcategory || currentExpense.subcategory,
-      transaction_type: txType,
-      account: resolvedAccount,
-    });
+    const updatedExpense = await expenseRepo.update(
+      expenseId,
+      await buildCorrectionUpdate(currentExpense, updatedData, correctionText)
+    );
 
     const emoji = updatedExpense.transaction_type === 'income' ? '💰' : '💸';
     const sign = updatedExpense.transaction_type === 'income' ? '+' : '-';
@@ -225,11 +252,48 @@ async function handleExpenseCorrection(chatId, correctionText) {
 // Telegram Event Handlers
 // ─────────────────────────────────────────────
 
+/**
+ * A voice note (or audio file) sent after tapping ✏️ Correct: transcribe it and
+ * apply it as a correction instead of recording a new transaction.
+ */
+async function handleVoiceCorrection({ chatId, fileId, ext }) {
+  const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+  const statusMsg = await bot.sendMessage(chatId, '🎙️ Transcribing your correction…');
+  const edit = (text, extra = {}) =>
+    bot.editMessageText(text, { chat_id: chatId, message_id: statusMsg.message_id, ...extra }).catch(() => { });
+  let audioPath = null;
+
+  try {
+    const fileInfo = await bot.getFile(fileId);
+    const fileUrl = `https://api.telegram.org/file/bot${env.telegram.botToken}/${fileInfo.file_path}`;
+    audioPath = path.join(uploadsDir, `tg-correction-${Date.now()}.${ext}`);
+    await downloadFile(fileUrl, audioPath);
+
+    const text = await transcribeAudio(audioPath);
+    const clean = text.toLowerCase().replace(/[^a-z]/g, '');
+    if (!text || text.length < 2 || SILENCE_PATTERNS.has(clean)) {
+      // Keep the correction pending so the user can simply try again.
+      await edit("⚠️ Couldn't hear a correction. Send it again as text or a voice note.");
+      return;
+    }
+
+    await edit(`🎙️ Heard: "${text}"`);
+    await handleExpenseCorrection(chatId, text);
+  } catch (err) {
+    logger.error('[Telegram] Voice correction error:', err);
+    await edit('❌ Could not process the voice correction. Please try again, or send it as text.');
+  } finally {
+    if (audioPath && fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+  }
+}
+
 async function handleVoiceMessage(msg) {
   const chatId = msg.chat.id;
   if (pendingCorrections.has(chatId)) {
-    // If pending correction, process audio transcription as correction text
-    // For now publish to audio queue
+    await handleVoiceCorrection({ chatId, fileId: msg.voice.file_id, ext: 'ogg' });
+    return;
   }
 
   await processAudioFile({
@@ -248,6 +312,11 @@ async function handleAudioMessage(msg) {
     ext = mime[1] === 'mpeg' ? 'mp3' : (mime[1] || 'mp3');
   } else if (audio.file_name) {
     ext = path.extname(audio.file_name).replace('.', '') || 'mp3';
+  }
+
+  if (pendingCorrections.has(msg.chat.id)) {
+    await handleVoiceCorrection({ chatId: msg.chat.id, fileId: audio.file_id, ext });
+    return;
   }
 
   await processAudioFile({

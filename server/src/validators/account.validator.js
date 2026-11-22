@@ -1,5 +1,6 @@
 import { AppError } from '../errors/AppError.js';
 import { VALIDATION_ERROR } from '../errors/errorCodes.js';
+import { dateErrors } from './expense.validator.js';
 
 function validate(schemaFn) {
   return (req, res, next) => {
@@ -43,5 +44,6 @@ export const validateTransfer = validate((body) => {
   } else if (isNaN(Number(body.amount)) || Number(body.amount) <= 0) {
     errors.push('amount must be a positive number');
   }
+  errors.push(...dateErrors(body.date));
   return errors;
 });

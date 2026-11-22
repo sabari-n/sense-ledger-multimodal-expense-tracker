@@ -62,6 +62,30 @@ export async function updateAccountName(oldName, newName) {
   return Expense.update({ account: newName }, { where: { account: oldName } });
 }
 
+/**
+ * Net effect of an account's transactions on its balance:
+ * income in, expenses and transfers out, transfers in.
+ */
+export async function netTransactionEffect(accountName, options = {}) {
+  const [[row]] = await sequelize.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN account = :name AND transaction_type = 'income' THEN amount
+                         WHEN account = :name THEN -amount ELSE 0 END), 0)
+     + COALESCE(SUM(CASE WHEN to_account = :name AND transaction_type = 'transfer' THEN amount ELSE 0 END), 0) AS net
+     FROM expenses WHERE account = :name OR to_account = :name`,
+    { replacements: { name: accountName }, transaction: options.transaction }
+  );
+  return parseFloat(row.net) || 0;
+}
+
+/**
+ * Move every transaction that references oldName (as source or transfer destination) to newName.
+ */
+export async function reassignAccount(oldName, newName, options = {}) {
+  await Expense.update({ account: newName }, { where: { account: oldName }, transaction: options.transaction });
+  await Expense.update({ to_account: newName }, { where: { to_account: oldName }, transaction: options.transaction });
+}
+
 // ─── Stats for account balance computation ────────────────────────────────────
 
 /**

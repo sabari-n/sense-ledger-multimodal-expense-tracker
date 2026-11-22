@@ -62,7 +62,11 @@ export const CATEGORY_PATTERNS = categoriesConfig.map((cat) => {
 export const SUBCATEGORY_PATTERNS = categoriesConfig.reduce((acc, cat) => {
   if (Array.isArray(cat.subcategories) && cat.subcategories.length > 0) {
     acc[cat.name] = cat.subcategories.map((sub) => {
-      const words = [sub.toLowerCase(), ...sub.split(/[\s,]+/).filter((w) => w.length > 2)];
+      // Same stop-word filter as categories: "Fruit and Vegetables" must not match every "and".
+      const words = [
+        sub.toLowerCase(),
+        ...sub.split(/[\s,]+/).filter((w) => w.length > 2 && !STOP_WORDS.has(w.toLowerCase())),
+      ];
       const escaped = Array.from(new Set(words))
         .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
@@ -138,11 +142,17 @@ export function detectIntent(text) {
  */
 export function matchCategoryKeyword(text) {
   if (!text) return null;
+  // "paid via credit card" names the payment method; without this, the word "credit"
+  // (from the Interest category's "Credit Bill") would file it under Interest.
+  // "credit card bill" keeps its "bill", so it still matches Interest.
+  const cleaned = text.replace(PAYMENT_CARD_REGEX, ' ');
   for (const { category, regex } of CATEGORY_PATTERNS) {
-    if (regex.test(text)) return category;
+    if (regex.test(cleaned)) return category;
   }
   return null;
 }
+
+const PAYMENT_CARD_REGEX = /\b(?:credit\s*(?:\/|or|and)?\s*debit\s*|debit\s*(?:\/|or|and)?\s*credit\s*|credit\s*|debit\s*)cards?\b(?!\s*bill)/gi;
 
 /**
  * Match text against subcategory keywords from categories.json.

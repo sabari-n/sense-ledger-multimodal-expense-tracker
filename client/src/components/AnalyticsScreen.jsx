@@ -16,19 +16,32 @@ const CATEGORY_COLORS = {
 };
 const FALLBACK_COLORS = ['#f97316', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export default function AnalyticsScreen({ expenses, currencySymbol = '₹' }) {
   const [activeTab, setActiveTab] = useState('expense');
-  
-  // Basic calculations (for now, using all expenses)
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+
+  const prevMonth = () => { if (month === 0) { setMonth(11); setYear(y => y - 1); } else setMonth(m => m - 1); };
+  const nextMonth = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); };
+
+  // Only the selected month's transactions
+  const monthExpenses = expenses.filter(e => {
+    const d = new Date(e.date);
+    return d.getFullYear() === year && d.getMonth() === month;
+  });
+
   let totalIncome = 0;
   let totalExpense = 0;
-  
-  expenses.forEach(e => {
+
+  monthExpenses.forEach(e => {
     if (e.transaction_type === 'income') totalIncome += parseFloat(e.amount);
     else if (e.transaction_type === 'expense') totalExpense += parseFloat(e.amount);
   });
 
-  const filteredExpenses = expenses.filter(e => e.transaction_type === activeTab);
+  const filteredExpenses = monthExpenses.filter(e => e.transaction_type === activeTab);
   
   const categoryTotals = {};
   filteredExpenses.forEach(e => {
@@ -80,9 +93,9 @@ export default function AnalyticsScreen({ expenses, currencySymbol = '₹' }) {
       </div>
 
       <div className="stats-month-nav">
-         <button><i className="fa-solid fa-chevron-left"></i></button>
-         <span>Jul 2020</span>
-         <button><i className="fa-solid fa-chevron-right"></i></button>
+         <button onClick={prevMonth} aria-label="Previous month"><i className="fa-solid fa-chevron-left"></i></button>
+         <span>{MONTHS_SHORT[month]} {year}</span>
+         <button onClick={nextMonth} aria-label="Next month"><i className="fa-solid fa-chevron-right"></i></button>
       </div>
 
       <div className="stats-type-tabs">
@@ -99,6 +112,9 @@ export default function AnalyticsScreen({ expenses, currencySymbol = '₹' }) {
       </div>
 
       <div className="stats-category-list">
+         {sortedCategories.length === 0 && (
+            <p className="stats-empty">No {activeTab === 'income' ? 'income' : 'expenses'} in {MONTHS_SHORT[month]} {year}.</p>
+         )}
          {sortedCategories.map(item => (
             <div className="stats-cat-row" key={item.cat}>
                <div className="stats-cat-left">

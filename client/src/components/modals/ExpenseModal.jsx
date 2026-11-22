@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useCategories } from '../../hooks/useCategories';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import { localDateKey, withPickedDay } from '../../utils/format';
 
 const TYPE_TABS = ['Income', 'Expense', 'Transfer'];
 const EMOJI_OPTIONS = ['📋','🍜','🚗','🏠','💊','📚','🎁','💰','👗','💄','🎭','🐶','👫','📶','🚕','💻','📈','↩️','🎮','✈️','🏋️','🧴','🛒','⚡','📱'];
@@ -26,27 +27,29 @@ const selectSx = {
 };
 
 const menuProps = {
-  PaperProps: {
-    sx: {
-      borderRadius: '14px',
-      boxShadow: 'var(--shadow-lg)',
-      border: '1px solid var(--border)',
-      mt: '4px',
-      '& .MuiMenuItem-root': {
-        fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif',
-        fontSize: '0.88rem',
-        fontWeight: 500,
-        color: 'var(--text-primary)',
-        borderRadius: '8px',
-        mx: '6px',
-        px: '12px',
-        py: '9px',
-        '&.Mui-selected': {
-          background: 'var(--primary-glow)',
-          color: 'var(--primary)',
-          fontWeight: 700,
+  slotProps: {
+    paper: {
+      sx: {
+        borderRadius: '14px',
+        boxShadow: 'var(--shadow-lg)',
+        border: '1px solid var(--border)',
+        mt: '4px',
+        '& .MuiMenuItem-root': {
+          fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif',
+          fontSize: '0.88rem',
+          fontWeight: 500,
+          color: 'var(--text-primary)',
+          borderRadius: '8px',
+          mx: '6px',
+          px: '12px',
+          py: '9px',
+          '&.Mui-selected': {
+            background: 'var(--primary-glow)',
+            color: 'var(--primary)',
+            fontWeight: 700,
+          },
+          '&:hover': { background: 'var(--surface-alt)' },
         },
-        '&:hover': { background: 'var(--surface-alt)' },
       },
     },
   },
@@ -82,6 +85,13 @@ export default function ExpenseModal({ data, accounts, onChange, onSave, onClose
   const selectCategory = (cat) => {
     if (isEditMode) {
       setEditingCatId(editingCatId === cat.id ? null : cat.id);
+      return;
+    }
+    // No subcategories: nothing to expand, so pick it and close in one tap.
+    if (!cat.subcategories?.length) {
+      onChange({ ...data, category: cat.name, subcategory: '' });
+      setShowCategoryPicker(false);
+      setExpandedCategory(null);
       return;
     }
     if (expandedCategory === cat.id) {
@@ -179,11 +189,21 @@ export default function ExpenseModal({ data, accounts, onChange, onSave, onClose
 
       {/* Form */}
       <form className="expense-form" onSubmit={handleSave}>
-        {/* Date */}
-        <div className="expense-form-row">
+        {/* Date: the readable date, with the native date picker laid over it */}
+        <label className="expense-form-row date-row">
           <span className="expense-form-label">Date</span>
           <span className="expense-form-value">{formatDate(data.date)}</span>
-        </div>
+          <span className="expense-form-chevron"><i className="fa-regular fa-calendar"></i></span>
+          <input
+            className="date-picker-input"
+            type="date"
+            aria-label="Transaction date"
+            value={localDateKey(data.date || new Date())}
+            max={localDateKey(new Date())}
+            onChange={e => { if (e.target.value) onChange({ ...data, date: withPickedDay(e.target.value, data.date) }); }}
+            onClick={e => e.currentTarget.showPicker?.()}
+          />
+        </label>
 
         {/* Amount */}
         <div className="expense-form-row">
@@ -314,10 +334,12 @@ export default function ExpenseModal({ data, accounts, onChange, onSave, onClose
               </div>
             )}
 
-            {/* Category Grid */}
+            {/* Category Grid. Each tile and its subcategory panel are separate grid items:
+                the panel spans the full width on the row below, and "dense" placement
+                (see .category-grid) keeps the rest of the tiles in their row. */}
             <div className="category-grid">
               {filteredCategories.map(cat => (
-                <div key={cat.id}>
+                <React.Fragment key={cat.id}>
                   <div
                     className={`category-grid-item ${(expandedCategory === cat.id || editingCatId === cat.id) ? 'active' : ''}`}
                     onClick={() => selectCategory(cat)}
@@ -328,24 +350,31 @@ export default function ExpenseModal({ data, accounts, onChange, onSave, onClose
                       </button>
                     )}
                     <span className="cat-emoji">{cat.emoji}</span>
-                    <span className="cat-name">{cat.name}</span>
+                    {/* zero-width space after commas lets "Rent,Waterbill,Maintenance" wrap */}
+                    <span className="cat-name">{cat.name.replace(/,/g, ',\u200b')}</span>
                     {!isEditMode && cat.subcategories?.length > 0 && (
-                      <span className="cat-chevron"><i className="fa-solid fa-chevron-down"></i></span>
+                      <span className={`cat-chevron ${expandedCategory === cat.id ? 'open' : ''}`}><i className="fa-solid fa-chevron-down"></i></span>
                     )}
                   </div>
 
-                  {/* Subcategory expansion (select mode) */}
+                  {/* Subcategory panel (select mode) */}
                   {!isEditMode && expandedCategory === cat.id && cat.subcategories?.length > 0 && (
                     <div className="subcategory-row">
-                      {cat.subcategories.map(sub => (
-                        <button
-                          key={sub}
-                          className={`sub-chip ${data.subcategory === sub ? 'active' : ''}`}
-                          onClick={() => selectSubcategory(sub)}
-                        >
-                          {sub}
+                      <span className="subcategory-row-title">{cat.emoji} {cat.name}</span>
+                      <div className="subcategory-chips">
+                        {cat.subcategories.map(sub => (
+                          <button
+                            key={sub}
+                            className={`sub-chip ${data.subcategory === sub ? 'active' : ''}`}
+                            onClick={() => selectSubcategory(sub)}
+                          >
+                            {sub}
+                          </button>
+                        ))}
+                        <button className="sub-chip sub-chip-none" onClick={() => selectSubcategory('')}>
+                          No subcategory
                         </button>
-                      ))}
+                      </div>
                     </div>
                   )}
 
@@ -376,7 +405,7 @@ export default function ExpenseModal({ data, accounts, onChange, onSave, onClose
                       </div>
                     </div>
                   )}
-                </div>
+                </React.Fragment>
               ))}
             </div>
           </div>

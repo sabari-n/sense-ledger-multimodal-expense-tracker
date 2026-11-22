@@ -186,35 +186,42 @@ body {
   letter-spacing: -0.5px;
   margin-bottom: 12px;
   line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
+/* Income / Expense as full-width rows (label left, amount right). Side-by-side boxes were
+   only ~95px wide, so amounts like +₹60,000.00 wrapped and the sign landed on its own line. */
 .side-balance-row {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .side-balance-stat {
-  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   background: rgba(255,255,255,0.07);
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 8px 12px;
 }
 
 .side-stat-label {
-  display: block;
   font-size: 0.6rem;
-  color: rgba(255,255,255,0.5);
+  color: rgba(255,255,255,0.55);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  margin-bottom: 3px;
 }
 
 .side-stat-value {
-  display: block;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 800;
   letter-spacing: -0.2px;
+  white-space: nowrap;               /* keep the sign with the number */
+  font-variant-numeric: tabular-nums; /* digits line up between the rows */
 }
 .side-stat-value.income  { color: #6dffd2; }
 .side-stat-value.expense { color: #ff8a8a; }
@@ -874,6 +881,10 @@ body {
   min-height: 54px; cursor: default; gap: 12px;
 }
 .expense-form-row.category-row { cursor: pointer; }
+/* Date row: an invisible native date input covers the row, so tapping anywhere opens the picker */
+.expense-form-row.date-row { position: relative; cursor: pointer; }
+.expense-form-row.date-row:hover { background: var(--surface-alt); }
+.date-picker-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: none; }
 .expense-form-row.category-row:hover { background: var(--surface-alt); }
 
 .expense-form-label { font-size: 0.82rem; color: var(--text-secondary); width: 100px; flex-shrink: 0; font-weight: 600; }
@@ -927,7 +938,10 @@ body {
 .cat-picker-icon-btn:hover { background: rgba(255,255,255,0.16); }
 .cat-edit-active { color: var(--gold) !important; }
 
-.category-grid { display: grid; grid-template-columns: repeat(3, 1fr); padding: 12px 8px; gap: 0; }
+/* dense: the full-width subcategory panel drops to the next row while the rest of
+   the tiles keep filling the tapped tile's row */
+.category-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-flow: row dense; padding: 12px 8px; gap: 4px; }
+@media (min-width: 560px) { .category-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
 .category-grid-item {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -937,23 +951,32 @@ body {
 .category-grid-item.active { background: rgba(16,163,122,0.2); }
 
 .cat-emoji  { font-size: 1.6rem; line-height: 1; margin-bottom: 5px; }
-.cat-name   { font-size: 0.7rem; color: #c6f0e2; font-weight: 600; text-align: center; line-height: 1.2; }
-.cat-chevron{ font-size: 0.58rem; color: var(--text-muted); margin-top: 3px; }
+.cat-name   { font-size: 0.7rem; color: #c6f0e2; font-weight: 600; text-align: center; line-height: 1.2; overflow-wrap: anywhere; }
+.cat-chevron{ font-size: 0.58rem; color: var(--text-muted); margin-top: 3px; transition: transform 0.2s; }
+.cat-chevron.open { transform: rotate(180deg); color: var(--primary-light); }
 
+/* Full-width subcategory panel under the tapped category's row */
 .subcategory-row {
-  grid-column: 1/-1; display: flex; flex-wrap: wrap; gap: 8px;
-  padding: 10px 14px 14px;
-  background: rgba(16,163,122,0.06);
-  border-top: 1px solid rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.05);
+  grid-column: 1 / -1;
+  margin: 2px 6px 8px; padding: 12px 14px 14px;
+  background: rgba(16,163,122,0.08);
+  border: 1px solid rgba(16,163,122,0.22); border-radius: 14px;
+  animation: fadeIn 0.15s ease-out;
 }
+.subcategory-row-title {
+  display: block; margin-bottom: 10px;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8fd8bf;
+}
+.subcategory-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .sub-chip {
-  padding: 6px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.18);
-  background: transparent; color: #d1d5db; font-size: 0.75rem; font-weight: 600;
-  cursor: pointer; font-family: inherit; transition: all 0.15s;
+  padding: 7px 13px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.04); color: #e2f5ee; font-size: 0.78rem; font-weight: 600; line-height: 1.2;
+  cursor: pointer; font-family: inherit; transition: all 0.15s; text-align: left;
 }
-.sub-chip:hover { background: rgba(255,255,255,0.09); }
+.sub-chip:hover { background: rgba(16,163,122,0.18); border-color: rgba(16,163,122,0.45); }
 .sub-chip.active { background: var(--primary-light); border-color: var(--primary-light); color: white; }
+.sub-chip-none { border-style: dashed; color: #9fb8af; background: transparent; }
 
 .cat-delete-btn {
   position: absolute; top: 6px; right: 6px; width: 20px; height: 20px;
@@ -992,9 +1015,9 @@ body {
 .cat-add-confirm:hover { background: var(--primary-mid); }
 
 .subcategory-edit-panel {
-  grid-column: 1/-1; background: rgba(255,255,255,0.03);
-  border-top: 1px solid rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.05);
-  padding: 10px 14px;
+  grid-column: 1 / -1; margin: 2px 6px 8px; padding: 12px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
 }
 
 .sub-edit-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -1056,6 +1079,8 @@ body {
   transition: all 0.2s; box-shadow: 0 6px 20px var(--fab-shadow);
 }
 .submit-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 28px var(--fab-shadow); }
+.delete-account-btn { background: transparent; color: var(--danger); border: 1.5px solid var(--danger); box-shadow: none; }
+.delete-account-btn:hover { background: var(--danger); color: white; box-shadow: none; }
 
 .edit-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; padding: 4px; transition: color 0.2s; }
 .edit-btn:hover { color: var(--primary-light); }
@@ -1114,3 +1139,4 @@ body {
 .fade-in { animation: fadeIn 0.3s ease-out; }
 
 ::-webkit-scrollbar { width: 0; }
+.stats-empty { text-align: center; color: var(--text-muted); padding: 24px 0; font-size: 0.9rem; }

@@ -99,14 +99,18 @@ export async function deleteAccount(id) {
   const defaultAccount = await accountRepo.findOne({ is_default: true });
   const defaultName    = defaultAccount?.name || 'Cash';
 
-  await expenseRepo.updateAccountName(account.name, defaultName);
+  // Move transactions (including transfers into this account) to the default account,
+  // and carry their effect over to its balance so totals still add up.
+  const net = await expenseRepo.netTransactionEffect(account.name);
+  await expenseRepo.reassignAccount(account.name, defaultName);
+  await accountRepo.adjustAccountBalance(defaultName, net);
   await accountRepo.destroyById(id);
 
   return { message: `Account deleted. Transactions moved to ${defaultName}.` };
 }
 
 export async function transferBetweenAccounts(data) {
-  const { from_account, to_account, amount, description } = data;
+  const { from_account, to_account, amount, description, date } = data;
   if (!from_account || !to_account || !amount) {
     throw new AppError('from_account, to_account, and amount are required.', VALIDATION_ERROR.status, VALIDATION_ERROR.code);
   }
@@ -130,6 +134,7 @@ export async function transferBetweenAccounts(data) {
     transaction_type: 'transfer',
     account:          fromAcc,
     to_account:       toAcc,
+    ...(date ? { date: new Date(date) } : {}),
   });
 
   return { message: 'Transfer completed successfully.' };

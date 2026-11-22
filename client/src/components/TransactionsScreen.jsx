@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRecorder } from '../hooks/useRecorder';
 import { useCategories } from '../hooks/useCategories';
-import { formatIndian } from '../utils/format';
+import { formatIndian, describeSaved, localDateKey } from '../utils/format';
 
 function getCategoryEmoji(category, categories) {
   if (!category) return '📋';
@@ -13,7 +13,7 @@ function groupByDate(expenses) {
   const grouped = {};
   expenses.forEach(exp => {
     const d = new Date(exp.date);
-    const key = d.toISOString().split('T')[0];
+    const key = localDateKey(d);
     if (!grouped[key]) grouped[key] = { date: d, income: 0, expense: 0, items: [] };
     grouped[key].items.push(exp);
     if (exp.transaction_type === 'income') grouped[key].income += parseFloat(exp.amount);
@@ -52,14 +52,15 @@ export default function TransactionsScreen({ expenses, onAdd, onEdit, onDelete, 
     setStatusText('Processing...');
     setIsProcessing(true);
     try {
-      const result = await onUploadAudio(blob, ext);
-      if (result?.success) {
-        setStatusText('Recorded!');
-        setTimeout(() => setStatusText('Tap mic to record'), 3000);
+      // The upload resolves with the saved transaction; failures throw with the API's reason.
+      const saved = await onUploadAudio(blob, ext);
+      if (saved?.id) {
+        setStatusText(describeSaved(saved, currencySymbol));
+        setTimeout(() => setStatusText('Tap mic to record'), 4000);
       } else { setStatusText('Failed. Try again.'); }
-    } catch { setStatusText('Failed. Try again.'); }
+    } catch (err) { setStatusText(err.response?.data?.error || 'Failed. Try again.'); }
     finally  { setIsProcessing(false); }
-  }, [onUploadAudio]);
+  }, [onUploadAudio, currencySymbol]);
 
   const { isRecording, toggleRecording } = useRecorder(handleRecordingComplete);
 
@@ -67,7 +68,8 @@ export default function TransactionsScreen({ expenses, onAdd, onEdit, onDelete, 
   const grouped  = useMemo(() => groupByDate(filtered), [filtered]);
 
   const totalIncome  = filtered.reduce((s, e) => e.transaction_type === 'income'  ? s + parseFloat(e.amount) : s, 0);
-  const totalExpense = filtered.reduce((s, e) => e.transaction_type !== 'income'  ? s + parseFloat(e.amount) : s, 0);
+  // Transfers move money between your own accounts, so they don't count as expenses.
+  const totalExpense = filtered.reduce((s, e) => e.transaction_type === 'expense' ? s + parseFloat(e.amount) : s, 0);
   const total        = totalIncome - totalExpense;
 
   const prevMonth = () => { if (month === 0) { setMonth(11); setYear(y => y - 1); } else setMonth(m => m - 1); };

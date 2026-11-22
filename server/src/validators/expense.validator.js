@@ -18,6 +18,15 @@ function validate(schemaFn) {
   };
 }
 
+/** Optional transaction date: must parse, and can't be more than a day in the future (timezone slack). */
+export function dateErrors(date) {
+  if (date === undefined || date === null || date === '') return [];
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return ['date must be a valid date'];
+  if (d.getTime() > Date.now() + 24 * 60 * 60 * 1000) return ['date cannot be in the future'];
+  return [];
+}
+
 export const validateCreateExpense = validate((body) => {
   const errors = [];
   if (body.amount === undefined || body.amount === null || body.amount === '') {
@@ -31,6 +40,7 @@ export const validateCreateExpense = validate((body) => {
   if (body.transaction_type && !['expense', 'income', 'transfer'].includes(body.transaction_type)) {
     errors.push('transaction_type must be expense, income, or transfer');
   }
+  errors.push(...dateErrors(body.date));
   return errors;
 });
 
@@ -42,5 +52,6 @@ export const validateUpdateExpense = validate((body) => {
   if (body.transaction_type && !['expense', 'income', 'transfer'].includes(body.transaction_type)) {
     errors.push('transaction_type must be expense, income, or transfer');
   }
+  errors.push(...dateErrors(body.date));
   return errors;
 });

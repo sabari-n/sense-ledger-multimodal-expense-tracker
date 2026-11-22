@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useRecorder } from '../hooks/useRecorder';
-import { formatIndian } from '../utils/format';
+import { formatIndian, describeSaved } from '../utils/format';
 
 export default function RecordScreen({ netBalance, totalIncome, totalSpend, onUploadAudio, currencySymbol = '₹' }) {
   const [statusText, setStatusText] = useState('Tap to record a transaction');
@@ -10,26 +10,27 @@ export default function RecordScreen({ netBalance, totalIncome, totalSpend, onUp
     setStatusText('Processing your transaction...');
     setIsProcessing(true);
     try {
-      const result = await onUploadAudio(blob, ext);
-      if (result?.success) {
-        setStatusText('Transaction recorded!');
-        setTimeout(() => setStatusText('Tap to record a transaction'), 3000);
+      // The upload resolves with the saved transaction; failures throw with the API's reason.
+      const saved = await onUploadAudio(blob, ext);
+      if (saved?.id) {
+        setStatusText(describeSaved(saved, currencySymbol));
+        setTimeout(() => setStatusText('Tap to record a transaction'), 4000);
       } else {
         setStatusText('Failed to process. Try again.');
       }
-    } catch {
-      setStatusText('Failed to process. Try again.');
+    } catch (err) {
+      setStatusText(err.response?.data?.error || 'Failed to process. Try again.');
     } finally {
       setIsProcessing(false);
     }
-  }, [onUploadAudio]);
+  }, [onUploadAudio, currencySymbol]);
 
   const { isRecording, toggleRecording } = useRecorder(handleRecordingComplete);
 
   return (
     <div className="record-screen fade-in">
       <header>
-        <h1>Spend<span className="highlight">Sync</span></h1>
+        <h1>Sense<span className="highlight">Ledger</span></h1>
         <p>Your AI-powered voice expense manager</p>
       </header>
 
