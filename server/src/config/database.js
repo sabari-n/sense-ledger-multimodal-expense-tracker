@@ -43,6 +43,10 @@ export async function initDB() {
     await sequelize.sync({ alter: false });
     logger.info('Database models synchronised.');
 
+    // telegram_raw_messages.status was always 'pending' (nothing ever updated it), so it was
+    // removed from the model. sync() doesn't drop columns, so drop it from existing databases.
+    await sequelize.query('ALTER TABLE IF EXISTS telegram_raw_messages DROP COLUMN IF EXISTS status;');
+
     // Sync/Seed categories from JSON configuration
     for (const cat of DEFAULT_CATEGORIES) {
       await Category.findOrCreate({

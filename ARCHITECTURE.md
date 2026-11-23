@@ -10,88 +10,18 @@ The system processes audio via **OpenAI Whisper**, extracts receipt text via **P
 
 The application is containerized with Docker Compose into decoupled microservices communicating through synchronous REST APIs and an asynchronous Apache Kafka event bus:
 
+<p align="center">
+  <a href="docs/architecture.svg"><img src="docs/architecture.svg" alt="SenseLedger architecture: Telegram and Web UI paths, the Kafka event bus, local AI services and PostgreSQL" width="100%"></a>
+</p>
+
+<sub>Click the diagram to open it full size. Source: <a href="docs/architecture.excalidraw"><code>docs/architecture.excalidraw</code></a>. Open it at <a href="https://excalidraw.com">excalidraw.com</a> to edit, then export it as SVG over <code>docs/architecture.svg</code>.</sub>
+
 Key points about the flow:
 
 - **One Node.js process, several roles.** The `expense-api` container hosts the REST API, the Telegram bot (long polling), and both Kafka consumers (LLM worker and Persistence worker). Telegram is not a separate service. Its messages enter the system through the bot inside the API.
 - **Two paths into the AI services.** The Web Client's voice upload calls Whisper (`POST /transcribe`) and Ollama **synchronously** inside the HTTP request. Telegram media goes **asynchronously** through Kafka, where Whisper and PaddleOCR run background consumer threads.
 - **Files travel by path, not by payload.** The API saves uploads and Telegram downloads to the shared `./uploads` volume. REST calls and Kafka events carry only `filePath` / `audio_path`, which Whisper and OCR read from the same mount.
 - **Inline actions skip Kafka.** 🗑️ Delete and ✏️ Correct callbacks are handled directly by the bot: Delete removes the row, and Correct calls the LLM and updates the row in place.
-
-```mermaid
-flowchart TD
-    subgraph Clients["📱 Clients"]
-        WebClient["💻 Web Client<br/>(React 19 + Vite + Chart.js)"]
-        TGUser["💬 Telegram user<br/>(Voice 🎙️ / Photo 📸 / Text ✍️)"]
-    end
-
-    TGCloud["☁️ Telegram Bot API"]
-
-    subgraph APIProc["🚀 expense-api — Node.js Express :9088 (single process)"]
-        REST["REST controllers<br/>CRUD + /expenses/upload-audio"]
-        Bot["🤖 Telegram bot service<br/>(long polling, inline buttons)"]
-        LLMW["🧠 LLM worker<br/>(llm-extraction-group)"]
-        Persist["💾 Persistence worker<br/>(persistence-group)"]
-        Extract["extractWithLLM()<br/>prompt + taxonomy + regex guardrails"]
-        Resolve["Account / category resolver<br/>(in-memory cache)"]
-    end
-
-    subgraph Streaming["⚡ Apache Kafka :9092 (KRaft)"]
-        K_Audio[["audio-ingestion-events"]]
-        K_Image[["image-ingestion-events"]]
-        K_Text[["text-extracted-events"]]
-        K_Struct[["expense-structured-events"]]
-    end
-
-    subgraph Perception["🤖 Local AI Services"]
-        Whisper["🎙️ Whisper :5000<br/>(HTTP /transcribe + Kafka worker)"]
-        OCR["📸 PaddleOCR :5001<br/>(Kafka worker)"]
-        Ollama["🧠 Ollama :11434<br/>(llama3.2:1b)"]
-    end
-
-    Uploads[("📁 ./uploads<br/>shared volume")]
-    DB[("🐘 PostgreSQL 15<br/>(expenses, accounts, categories, telegram_raw_messages)")]
-
-    %% ── Sync Web path ──
-    WebClient -->|"REST /api/*"| REST
-    REST -->|"① save audio (multer)"| Uploads
-    REST -->|"② POST /transcribe {audio_path}"| Whisper
-    REST -->|"③ extract"| Extract
-    REST -->|"④ resolve"| Resolve
-    REST -->|"⑤ INSERT / CRUD"| DB
-
-    %% ── Async Telegram path ──
-    TGUser <--> TGCloud
-    TGCloud <-->|"getUpdates / sendMessage / editMessageText"| Bot
-    Bot -->|"download media"| Uploads
-    Bot -->|"voice / audio {filePath}"| K_Audio
-    Bot -->|"photo {filePath}"| K_Image
-    Bot -->|"text {rawText}"| K_Text
-
-    K_Audio --> Whisper
-    K_Image --> OCR
-    Uploads -.->|"read file"| Whisper
-    Uploads -.->|"read file"| OCR
-    Whisper -->|"rawText + whisperMs"| K_Text
-    OCR -->|"rawText + ocrMs"| K_Text
-
-    K_Text --> LLMW
-    LLMW -->|"status: Extracting…"| Bot
-    LLMW --> Extract
-    Extract <-->|"/api/chat (format: json)"| Ollama
-    LLMW -->|"extractedData + llmMs"| K_Struct
-
-    K_Struct --> Persist
-    Persist --> Resolve
-    Persist -->|"INSERT expense"| DB
-    Persist -->|"summary card + 🗑️ / ✏️ buttons"| Bot
-
-    %% ── Inline actions (no Kafka) ──
-    Bot -.->|"log raw text · 🗑️ delete · ✏️ update"| DB
-    Bot -.->|"✏️ correction prompt"| Extract
-
-    classDef topic fill:#fff4d6,stroke:#d4a017,color:#333
-    class K_Audio,K_Image,K_Text,K_Struct topic
-```
 
 ---
 

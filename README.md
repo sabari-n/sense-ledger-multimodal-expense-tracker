@@ -22,60 +22,20 @@ SenseLedger is a full-stack, 100% local, multi-modal AI expense tracker designed
 
 ## 🏛️ System Architecture
 
-SenseLedger has two paths into the same database:
+SenseLedger has two paths into the same PostgreSQL database, sharing the same local AI services:
 
-- **Sync path (REST)** — the Web UI reads and edits data through the Express API. A voice recording from the Web UI is processed inline in the request (Whisper over HTTP → Ollama → PostgreSQL) without Kafka.
-- **Async path (Kafka)** — Telegram messages (voice, photo, text) go through an event pipeline. Every input is first turned into **plain text**, then the LLM turns that text into a **structured transaction**, which is then saved.
+- **Telegram (top lane): async, through Kafka.** Every input is first turned into **plain text** (voice by Whisper, receipt photos by PaddleOCR, text as is). The LLM consumer then turns that text into a **structured transaction**, and the persistence consumer saves it.
+- **Web UI (bottom lane): sync, through REST.** The Web UI reads and edits data through the REST API. A voice recording is processed inside the request (Whisper → Ollama → PostgreSQL), without Kafka.
 
-The Telegram bot, the LLM consumer and the persistence consumer all run **inside the Express API process**. Media files are passed between containers through the shared `./uploads` volume: Kafka events carry only the file path.
+<p align="center">
+  <a href="docs/architecture.svg"><img src="docs/architecture.svg" alt="SenseLedger architecture: Telegram and Web UI paths, the Kafka event bus, local AI services and PostgreSQL" width="100%"></a>
+</p>
 
-```mermaid
-flowchart TD
-    WEB["📱 Web UI<br/>React 19"]
-    TGU["💬 Telegram chat"]
+<sub>Click the diagram to open it full size. Source: <a href="docs/architecture.excalidraw"><code>docs/architecture.excalidraw</code></a>. Open it at <a href="https://excalidraw.com">excalidraw.com</a> to edit, then export it as SVG over <code>docs/architecture.svg</code>.</sub>
 
-    subgraph APIBOX["🚀 Express API :9088 — one Node.js process"]
-        REST["REST API"]
-        BOT["🤖 Telegram bot<br/>(long polling)"]
-        LLM["🧠 LLM consumer<br/>+ regex guardrails"]
-        PERS["💾 Persistence consumer<br/>resolve account / category"]
-    end
-
-    subgraph KAFKA["⚡ Kafka :9092"]
-        TA(["audio-ingestion-events"])
-        TI(["image-ingestion-events"])
-        T1(["text-extracted-events"])
-        T2(["expense-structured-events"])
-    end
-
-    WH["🎙️ Whisper :5000<br/>speech → text"]
-    OCR["📸 PaddleOCR :5001<br/>receipt → text"]
-    OLL["Ollama :11434<br/>llama3.2:1b"]
-    DB[("🐘 PostgreSQL<br/>:6033")]
-
-    %% Sync path (Web UI)
-    WEB -->|"REST /api/*"| REST
-    REST -->|"🎙️ upload-audio<br/>POST /transcribe"| WH
-    REST <-->|"prompt / JSON"| OLL
-    REST -->|"CRUD"| DB
-
-    %% Async path (Telegram)
-    TGU <-->|"Telegram Bot API"| BOT
-    BOT -->|"🎙️ voice / audio"| TA --> WH
-    BOT -->|"📸 photo"| TI --> OCR
-    BOT -->|"💬 text"| T1
-    WH -->|"transcript"| T1
-    OCR -->|"receipt text"| T1
-    T1 --> LLM
-    LLM <-->|"prompt / JSON"| OLL
-    LLM --> T2 --> PERS
-    PERS -->|"INSERT"| DB
-    PERS -->|"✅ summary + 🗑️ Delete / ✏️ Correct"| BOT
-    BOT -.->|"🗑️ delete · ✏️ correct<br/>(direct, no Kafka)"| DB
-
-    classDef topic fill:#fff4d6,stroke:#d4a017,color:#333
-    class TA,TI,T1,T2 topic
-```
+- After saving, the bot replies with a summary and **🗑️ Delete** / **✏️ Correct** buttons. Those buttons update the database directly, without Kafka.
+- The Telegram bot and both consumers run **inside the Express API process**.
+- Media files are passed between containers through the shared `./uploads` volume. Kafka events carry only the file path.
 
 | Kafka topic | Produced by | Consumed by | Carries |
 | :--- | :--- | :--- | :--- |
@@ -148,7 +108,10 @@ Extraction accuracy on 13 test cases (receipts, spoken amounts, transfers, card 
 - `gemma3:4b` gives the best accuracy for its speed. To use it, set `OLLAMA_MODEL=gemma3:4b` in `.env` and run `docker compose up -d --force-recreate api`.
 - Scores vary by about ±1 between runs, because model output isn't fully deterministic.
 
-Run it yourself with `./benchmarks/llm/run.sh <model> [model...]`. See **[benchmarks/llm/README.md](./benchmarks/llm/README.md)**.
+Run it yourself with `./benchmarks/llm/run.sh <model> [model...]`.
+
+- 📊 **[Full benchmark results](./benchmarks/llm/RESULTS.md)**: timings and per-case scores for every model.
+- 🧪 **[How to run the benchmark](./benchmarks/llm/README.md)**: setup, test cases and scoring.
 
 ---
 
@@ -193,4 +156,5 @@ docker compose up --build -d
 ## 📖 Additional Documentation
 
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)**: Deep dive into microservices, Kafka event contracts, database schemas, and REST APIs.
+- **[LLM Benchmark](./benchmarks/llm/README.md)**: Runnable model comparison suite. Results are in [RESULTS.md](./benchmarks/llm/RESULTS.md).
 - **[MEDIUM_ARTICLE.md](./MEDIUM_ARTICLE.md)**: Article covering the architectural decisions, local AI model selection, and trade-offs.
