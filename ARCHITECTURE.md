@@ -266,7 +266,7 @@ erDiagram
         int category_id FK
         text subcategory
         text original_text
-        varchar(20) source "manual | voice | telegram | adjustment | unknown"
+        varchar(20) source "manual | voice | telegram | adjustment"
         timestamptz date
         timestamptz created_at
         timestamptz updated_at

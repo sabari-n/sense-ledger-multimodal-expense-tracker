@@ -4,9 +4,15 @@ import paddle
 import re
 import os
 import json
+import logging
 import threading
 import time
 from kafka import KafkaConsumer, KafkaProducer
+
+# kafka-python logs every internal retry (e.g. NotCoordinatorForGroupError while
+# Kafka creates its offsets topic on first start). It recovers on its own, so
+# only surface real errors; the worker prints its own connection status.
+logging.getLogger("kafka").setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
@@ -41,7 +47,9 @@ TEXT_TOPIC = os.getenv("KAFKA_TOPIC_TEXT_EXTRACTED", "text-extracted-events")
 
 def fix_decimals(text):
     text = re.sub(r'(\d)\s*\.\s*(\d)', r'\1.\2', text)
-    text = re.sub(r'(\d{1,6})\s+(\d{2})\b', r'\1.\2', text)
+    # Restore a dropped decimal point ("120 50" -> "120.50"), but only between two
+    # standalone numbers on the same line, so "30.00   60.00" is left untouched.
+    text = re.sub(r'(?<![\d.,])(\d{1,3}(?:,\d{2,3})+|\d{1,6})[ \t](\d{2})(?![\d.,])', r'\1.\2', text)
     text = re.sub(r'(?<=\d)O(?=\d)', '0', text)
     text = re.sub(r'(?<=\d)o(?=\d)', '0', text)
     return text

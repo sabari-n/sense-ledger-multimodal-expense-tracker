@@ -19,5 +19,4 @@ export const TRANSACTION_SOURCES = Object.freeze({
   VOICE: 'voice',            // web UI audio upload
   TELEGRAM: 'telegram',      // Telegram bot (text, voice, photo)
   ADJUSTMENT: 'adjustment',  // balance edits and opening balances
-  UNKNOWN: 'unknown',        // rows created before sources were tracked
 });

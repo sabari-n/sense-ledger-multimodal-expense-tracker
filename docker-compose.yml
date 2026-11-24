@@ -48,6 +48,14 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_JVM_PERFORMANCE_OPTS: "-Xms128m -Xmx256m"
+    # Lets dependent services wait until the broker accepts connections,
+    # instead of failing to connect while it is still starting up.
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
     cpus: 1.0
     mem_limit: 500m
     deploy:
@@ -63,7 +71,8 @@ services:
     container_name: expense-kafka-ui
     restart: always
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
       KAFKA_CLUSTERS_0_NAME: expense-tracker
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
@@ -103,11 +112,16 @@ services:
           cpus: '1.0'
           memory: 350M
     depends_on:
-      - postgres
-      - ollama
-      - whisper
-      - ocr
-      - kafka
+      postgres:
+        condition: service_started
+      ollama:
+        condition: service_started
+      whisper:
+        condition: service_started
+      ocr:
+        condition: service_started
+      kafka:
+        condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
       - ./server/src:/app/src
@@ -121,7 +135,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
       KAFKA_BROKERS: kafka:9092
     volumes:
@@ -139,7 +154,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
       KAFKA_BROKERS: kafka:9092
     volumes:
