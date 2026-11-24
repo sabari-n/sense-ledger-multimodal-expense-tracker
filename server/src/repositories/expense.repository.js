@@ -1,163 +1,160 @@
-import { Op, fn, col, literal } from 'sequelize';
-import Expense from '../models/expense.model.js';
-import sequelize from '../models/sequelize.js';
-import { applyTransactionBalance, revertTransactionBalance, loadAccountCache } from './account.repository.js';
+import { Op, QueryTypes, col } from 'sequelize';
+import sequelize, { Expense, Account, Category } from '../models/index.js'; // index registers associations
+import * as accountRepo from './account.repository.js';
+import * as categoryRepo from './category.repository.js';
+import { AppError } from '../errors/AppError.js';
+import { VALIDATION_ERROR } from '../errors/errorCodes.js';
+import { TRANSACTION_TYPES } from '../utils/enums.js';
+
+/*
+ * Expenses reference accounts and categories by id. This repository is the only place that
+ * knows that: callers read rows with `account`, `to_account` and `category` names (as the API
+ * always returned) and may write either names or the *_id columns.
+ */
+
+// ─── Read shape ───────────────────────────────────────────────────────────────
+
+// Flat rows: related names are pulled up next to the ids (`account`, `to_account`, `category`).
+const READ_OPTIONS = {
+  attributes: [
+    'id', 'original_text', 'amount',
+    [col('categoryRef.name'), 'category'],
+    'subcategory', 'transaction_type',
+    [col('accountRef.name'), 'account'],
+    [col('toAccountRef.name'), 'to_account'],
+    'date', 'source', 'account_id', 'to_account_id', 'category_id', 'created_at', 'updated_at',
+  ],
+  include: [
+    { model: Account,  as: 'accountRef',   attributes: [], required: true },
+    { model: Account,  as: 'toAccountRef', attributes: [], required: false },
+    { model: Category, as: 'categoryRef',  attributes: [], required: true },
+  ],
+  raw: true,
+};
+
+// ─── Write mapping (names → ids) ──────────────────────────────────────────────
+
+const PLAIN_COLUMNS = ['original_text', 'amount', 'subcategory', 'transaction_type', 'date', 'source',
+  'account_id', 'to_account_id', 'category_id'];
+
+async function accountIdFor(name) {
+  const acc = await accountRepo.findOne({ name });
+  if (!acc) throw new AppError(`Unknown account: ${name}.`, VALIDATION_ERROR.status, VALIDATION_ERROR.code);
+  return acc.id;
+}
+
+async function categoryIdFor(name) {
+  const cat = await categoryRepo.findByName(name);
+  if (!cat) throw new AppError(`Unknown category: ${name}.`, VALIDATION_ERROR.status, VALIDATION_ERROR.code);
+  return cat.id;
+}
+
+/** Translate an API/service-shaped object into table columns. Undefined fields are left out. */
+async function toColumns(data) {
+  const cols = {};
+  for (const key of PLAIN_COLUMNS) {
+    if (data[key] !== undefined) cols[key] = data[key];
+  }
+  if (data.account !== undefined && cols.account_id === undefined) {
+    cols.account_id = await accountIdFor(data.account);
+  }
+  if (data.to_account !== undefined && cols.to_account_id === undefined) {
+    cols.to_account_id = data.to_account ? await accountIdFor(data.to_account) : null;
+  }
+  if (data.category !== undefined && cols.category_id === undefined) {
+    cols.category_id = await categoryIdFor(data.category);
+  }
+  return cols;
+}
+
+// ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 export async function findAll() {
-  return Expense.findAll({ order: [['date', 'DESC']], raw: true });
+  return Expense.findAll({ ...READ_OPTIONS, order: [['date', 'DESC'], ['id', 'DESC']] });
 }
 
 export async function findById(id, options = {}) {
-  return Expense.findByPk(id, { raw: true, transaction: options.transaction });
+  return Expense.findOne({ ...READ_OPTIONS, where: { id: Number(id) }, transaction: options.transaction });
 }
 
-export async function create(data) {
-  const result = await sequelize.transaction(async (t) => {
-    const instance = await Expense.create(data, { transaction: t });
-    const plain = instance.get({ plain: true });
-    await applyTransactionBalance(plain, { transaction: t });
-    return plain;
-  });
-
-  await loadAccountCache();
-  return result;
+export async function create(data, options = {}) {
+  const cols = await toColumns(data);
+  const instance = await Expense.create(cols, { transaction: options.transaction });
+  return findById(instance.id, options);
 }
 
-export async function update(id, data) {
-  const result = await sequelize.transaction(async (t) => {
-    const oldExpense = await findById(id, { transaction: t });
-    if (oldExpense) {
-      await revertTransactionBalance(oldExpense, { transaction: t });
-    }
-
-    await Expense.update(data, { where: { id }, transaction: t });
-    const updatedExpense = await findById(id, { transaction: t });
-    if (updatedExpense) {
-      await applyTransactionBalance(updatedExpense, { transaction: t });
-    }
-    return updatedExpense;
-  });
-
-  await loadAccountCache();
-  return result;
+export async function update(id, data, options = {}) {
+  const cols = await toColumns(data);
+  if (Object.keys(cols).length) {
+    await Expense.update(cols, { where: { id }, transaction: options.transaction });
+  }
+  return findById(id, options);
 }
 
-export async function destroy(id) {
-  const result = await sequelize.transaction(async (t) => {
-    const oldExpense = await findById(id, { transaction: t });
-    if (oldExpense) {
-      await revertTransactionBalance(oldExpense, { transaction: t });
-    }
-    return Expense.destroy({ where: { id }, transaction: t });
-  });
-
-  await loadAccountCache();
-  return result;
+export async function destroy(id, options = {}) {
+  return Expense.destroy({ where: { id }, transaction: options.transaction });
 }
 
 /**
- * Bulk-update the `account` field for all expenses whose account matches oldName.
+ * Move every transaction of one account (as source or transfer destination) to another.
+ * Transfers between the two would become self-transfers, which never moved money, so they
+ * are removed first.
  */
-export async function updateAccountName(oldName, newName) {
-  return Expense.update({ account: newName }, { where: { account: oldName } });
+export async function reassignAccount(fromAccountId, toAccountId, options = {}) {
+  const { transaction } = options;
+  await Expense.destroy({
+    where: {
+      transaction_type: TRANSACTION_TYPES.TRANSFER,
+      [Op.or]: [
+        { account_id: fromAccountId, to_account_id: toAccountId },
+        { account_id: toAccountId,   to_account_id: fromAccountId },
+      ],
+    },
+    transaction,
+  });
+  await Expense.update({ account_id: toAccountId },    { where: { account_id: fromAccountId },    transaction });
+  await Expense.update({ to_account_id: toAccountId }, { where: { to_account_id: fromAccountId }, transaction });
 }
 
+// ─── Balances ─────────────────────────────────────────────────────────────────
+
 /**
- * Net effect of an account's transactions on its balance:
- * income in, expenses and transfers out, transfers in.
+ * Per-account totals.
+ *
+ * Plain SQL on purpose: each account joins rows where it is the source OR the transfer
+ * destination, with conditional sums — in the ORM that is a custom `on` plus literal CASE
+ * expressions, i.e. the same SQL in harder-to-read wrappers. `total_income` = income + transfers in, `total_expense` = expenses +
+ * transfers out, `balance` = the difference. Accounts without transactions are included.
+ *
+ * @param {{ accountId?: number, transaction?: object }} [options]
+ * @returns {Promise<Array<{account_id:number, total_income:number, total_expense:number, balance:number}>>}
  */
-export async function netTransactionEffect(accountName, options = {}) {
-  const [[row]] = await sequelize.query(
-    `SELECT
-       COALESCE(SUM(CASE WHEN account = :name AND transaction_type = 'income' THEN amount
-                         WHEN account = :name THEN -amount ELSE 0 END), 0)
-     + COALESCE(SUM(CASE WHEN to_account = :name AND transaction_type = 'transfer' THEN amount ELSE 0 END), 0) AS net
-     FROM expenses WHERE account = :name OR to_account = :name`,
-    { replacements: { name: accountName }, transaction: options.transaction }
+export async function getAccountTotals(options = {}) {
+  const rows = await sequelize.query(
+    `SELECT a.id AS account_id,
+            COALESCE(SUM(CASE WHEN e.account_id = a.id AND e.transaction_type = 'income' THEN e.amount
+                              WHEN e.to_account_id = a.id THEN e.amount ELSE 0 END), 0) AS total_income,
+            COALESCE(SUM(CASE WHEN e.account_id = a.id AND e.transaction_type <> 'income' THEN e.amount
+                              ELSE 0 END), 0) AS total_expense
+     FROM accounts a
+     LEFT JOIN expenses e ON e.account_id = a.id OR e.to_account_id = a.id
+     ${options.accountId ? 'WHERE a.id = :accountId' : ''}
+     GROUP BY a.id`,
+    { replacements: { accountId: options.accountId }, type: QueryTypes.SELECT, transaction: options.transaction }
   );
-  return parseFloat(row.net) || 0;
-}
-
-/**
- * Move every transaction that references oldName (as source or transfer destination) to newName.
- */
-export async function reassignAccount(oldName, newName, options = {}) {
-  await Expense.update({ account: newName }, { where: { account: oldName }, transaction: options.transaction });
-  await Expense.update({ to_account: newName }, { where: { to_account: oldName }, transaction: options.transaction });
-}
-
-// ─── Stats for account balance computation ────────────────────────────────────
-
-/**
- * Sum income and expense amounts grouped by source account.
- */
-export async function getSourceStats() {
-  return Expense.findAll({
-    attributes: [
-      ['account', 'acc'],
-      [fn('COALESCE', fn('SUM', literal("CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END")), 0), 'total_income'],
-      [fn('COALESCE', fn('SUM', literal("CASE WHEN transaction_type IN ('expense', 'transfer') THEN amount ELSE 0 END")), 0), 'total_expense'],
-    ],
-    group: ['account'],
-    raw: true,
+  return rows.map((r) => {
+    const income = parseFloat(r.total_income);
+    const expense = parseFloat(r.total_expense);
+    return {
+      account_id: r.account_id,
+      total_income: income,
+      total_expense: expense,
+      balance: Math.round((income - expense) * 100) / 100,
+    };
   });
 }
 
-/**
- * Sum incoming transfer amounts grouped by destination account.
- */
-export async function getTransferStats() {
-  return Expense.findAll({
-    attributes: [
-      ['to_account', 'acc'],
-      [fn('COALESCE', fn('SUM', col('amount')), 0), 'total_income'],
-      [literal('0'), 'total_expense'],
-    ],
-    where: { transaction_type: 'transfer', to_account: { [Op.ne]: null } },
-    group: ['to_account'],
-    raw: true,
-  });
-}
-
-// ─── Telegram bot query helpers ───────────────────────────────────────────────
-
-/**
- * Return aggregated income/expense/count for expenses in [today, tomorrow).
- */
-export async function getDailySummary(today, tomorrow) {
-  return Expense.findOne({
-    attributes: [
-      [fn('COALESCE', fn('SUM', literal("CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END")), 0), 'total_expense'],
-      [fn('COALESCE', fn('SUM', literal("CASE WHEN transaction_type = 'income'  THEN amount ELSE 0 END")), 0), 'total_income'],
-      [fn('COUNT', col('id')), 'total_count'],
-    ],
-    where: { date: { [Op.gte]: today, [Op.lt]: tomorrow } },
-    raw: true,
-  });
-}
-
-/**
- * Return the most recent `limit` transactions.
- */
-export async function getRecent(limit = 10) {
-  return Expense.findAll({ order: [['date', 'DESC']], limit, raw: true });
-}
-
-/**
- * Return expenses since `startOfMonth`, grouped by category + transaction_type,
- * ordered by total descending.
- */
-export async function getMonthlyCategoryBreakdown(startOfMonth) {
-  return Expense.findAll({
-    attributes: [
-      'category',
-      'transaction_type',
-      [fn('SUM', col('amount')), 'total'],
-      [fn('COUNT', col('id')), 'count'],
-    ],
-    where:  { date: { [Op.gte]: startOfMonth } },
-    group:  ['category', 'transaction_type'],
-    order:  [[fn('SUM', col('amount')), 'DESC']],
-    raw:    true,
-  });
+export async function getAccountBalance(accountId, options = {}) {
+  const [row] = await getAccountTotals({ ...options, accountId });
+  return row ? row.balance : 0;
 }

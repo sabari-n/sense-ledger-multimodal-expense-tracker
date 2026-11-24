@@ -1,11 +1,7 @@
 import * as accountRepo from '../repositories/account.repository.js';
 import * as categoryRepo from '../repositories/category.repository.js';
 
-export const TRANSACTION_TYPES = Object.freeze({
-    EXPENSE: 'expense',
-    INCOME: 'income',
-    TRANSFER: 'transfer',
-});
+export { TRANSACTION_TYPES, TRANSACTION_SOURCES } from './enums.js';
 
 export const DEFAULT_FALLBACK_CATEGORIES = Object.freeze({
     EXPENSE: 'Other',

@@ -53,6 +53,12 @@ export async function findById(id) {
   return idToCategoryMap.get(Number(id)) || null;
 }
 
+export async function findByName(name) {
+  if (!name || typeof name !== 'string') return null;
+  await ensureCategoryCache();
+  return nameToCategoryMap.get(name.toLowerCase().trim()) || null;
+}
+
 export async function create(data) {
   const instance = await Category.create(data);
   const plain = instance.get({ plain: true });

@@ -1,9 +1,7 @@
 import fs from 'fs';
-import sequelize, { Expense, Account, Category, TelegramRawMessage } from '../models/index.js';
+import sequelize, { Account, Category } from '../models/index.js';
 import { logger } from './logger.js';
-
-// Keep references so all models are registered before sync
-const _models = { Expense, Account, Category, TelegramRawMessage };
+import { runMigrations } from '../db/migrate.js';
 
 const DEFAULT_CATEGORIES = JSON.parse(
   fs.readFileSync(new URL('./categories.json', import.meta.url), 'utf-8')
@@ -18,49 +16,26 @@ export async function initDB() {
     await sequelize.authenticate();
     logger.info('PostgreSQL connection established.');
 
-    // Ensure categories table has unique constraint on name if table already exists
-    try {
-      await sequelize.query(`
-        DO $$
-        BEGIN
-          IF EXISTS (
-            SELECT 1 FROM information_schema.tables WHERE table_name = 'categories'
-          ) THEN
-            IF NOT EXISTS (
-              SELECT 1 FROM pg_constraint WHERE conname = 'categories_name_unique'
-            ) AND NOT EXISTS (
-              SELECT 1 FROM pg_indexes WHERE tablename = 'categories' AND indexdef LIKE '%(name)%'
-            ) THEN
-              ALTER TABLE categories ADD CONSTRAINT categories_name_unique UNIQUE (name);
-            END IF;
-          END IF;
-        END $$;
-      `);
-    } catch (e) {
-      logger.warn('Schema setup note:', e.message);
-    }
+    // Schema is owned by versioned migrations (src/migrations), not sequelize.sync().
+    await runMigrations();
 
-    await sequelize.sync({ alter: false });
-    logger.info('Database models synchronised.');
-
-    // telegram_raw_messages.status was always 'pending' (nothing ever updated it), so it was
-    // removed from the model. sync() doesn't drop columns, so drop it from existing databases.
-    await sequelize.query('ALTER TABLE IF EXISTS telegram_raw_messages DROP COLUMN IF EXISTS status;');
-
-    // Sync/Seed categories from JSON configuration
+    // Seed missing categories from JSON configuration
     for (const cat of DEFAULT_CATEGORIES) {
+      const { keywords, ...fields } = cat; // keywords feed heuristics, not the table
       await Category.findOrCreate({
-        where: { name: cat.name },
-        defaults: cat,
+        where: { name: fields.name },
+        defaults: fields,
       });
     }
     logger.info('Categories synchronised with config.');
 
-    // Sync/Seed accounts from JSON configuration
-    for (const acc of DEFAULT_ACCOUNTS) {
+    // Seed missing accounts. Only one account may be the default (unique index), so a seed's
+    // is_default flag only applies when no default exists yet.
+    for (const { aliases, ...fields } of DEFAULT_ACCOUNTS) { // aliases feed heuristics, not the table
+      const hasDefault = (await Account.count({ where: { is_default: true } })) > 0;
       await Account.findOrCreate({
-        where: { name: acc.name },
-        defaults: acc,
+        where: { name: fields.name },
+        defaults: { ...fields, is_default: Boolean(fields.is_default) && !hasDefault },
       });
     }
     logger.info('Accounts synchronised with config.');

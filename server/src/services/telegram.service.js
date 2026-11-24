@@ -182,6 +182,8 @@ export async function buildCorrectionUpdate(currentExpense, updatedData, correct
       : (matchSubcategory(currentExpense.category, correctionText) || currentExpense.subcategory),
     transaction_type: txType,
     account: accountMentioned ? await resolveAccountName(accountMentioned) : currentExpense.account,
+    // Only transfers keep a destination account.
+    ...(txType !== 'transfer' ? { to_account: null } : {}),
   };
 }
 
@@ -201,7 +203,9 @@ async function handleExpenseCorrection(chatId, correctionText) {
     }
 
     const prompt =
-      `Existing expense transaction: ${JSON.stringify(currentExpense)}\n\n` +
+      // Same fields the LLM always saw — not the ids/timestamps the row now also carries.
+      `Existing expense transaction: ${JSON.stringify((({ id, original_text, amount, category, subcategory, transaction_type, account, to_account, date }) =>
+        ({ id, original_text, amount, category, subcategory, transaction_type, account, to_account, date }))(currentExpense))}\n\n` +
       `User requested correction: "${correctionText}"\n\n` +
       `Update the fields accordingly. Extract JSON schema:\n` +
       `{"amount": number, "category": string, "subcategory": string, "transaction_type": "expense"|"income", "account": string}`;

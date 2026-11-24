@@ -1,49 +1,30 @@
-import { AppError } from '../errors/AppError.js';
-import { VALIDATION_ERROR } from '../errors/errorCodes.js';
-import { dateErrors } from './expense.validator.js';
+import { z } from 'zod';
+import { optional, requiredString, positiveAmount, finiteNumber, transactionDate } from './validate.js';
 
-function validate(schemaFn) {
-  return (req, res, next) => {
-    const errors = schemaFn(req.body);
-    if (errors.length > 0) {
-      return next(new AppError(errors.join('; '), VALIDATION_ERROR.status, VALIDATION_ERROR.code));
-    }
-    next();
-  };
-}
+const accountFields = {
+  account_type:     optional(z.string()),
+  // A balance (may be negative). Setting it records an adjustment transaction.
+  balance:          optional(finiteNumber('balance')),
+  icon:             optional(z.string()),
+  color:            optional(z.string()),
+  include_in_total: z.boolean({ error: 'include_in_total must be true or false' }).optional(),
+};
 
-export const validateCreateAccount = validate((body) => {
-  const errors = [];
-  if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
-    errors.push('name is required');
-  }
-  if (body.balance !== undefined && isNaN(Number(body.balance))) {
-    errors.push('balance must be a number');
-  }
-  return errors;
+export const createAccountSchema = z.object({
+  name: requiredString('name'),
+  ...accountFields,
 });
 
-export const validateUpdateAccount = validate((body) => {
-  const errors = [];
-  if (body.balance !== undefined && isNaN(Number(body.balance))) {
-    errors.push('balance must be a number');
-  }
-  return errors;
+// Omitted fields keep their current value.
+export const updateAccountSchema = z.object({
+  name: optional(requiredString('name')),
+  ...accountFields,
 });
 
-export const validateTransfer = validate((body) => {
-  const errors = [];
-  if (!body.from_account || typeof body.from_account !== 'string' || !body.from_account.trim()) {
-    errors.push('from_account is required');
-  }
-  if (!body.to_account || typeof body.to_account !== 'string' || !body.to_account.trim()) {
-    errors.push('to_account is required');
-  }
-  if (body.amount === undefined || body.amount === null || body.amount === '') {
-    errors.push('amount is required');
-  } else if (isNaN(Number(body.amount)) || Number(body.amount) <= 0) {
-    errors.push('amount must be a positive number');
-  }
-  errors.push(...dateErrors(body.date));
-  return errors;
+export const transferSchema = z.object({
+  from_account: requiredString('from_account'),
+  to_account:   requiredString('to_account'),
+  amount:       positiveAmount(),
+  description:  z.string().nullish(),
+  date:         transactionDate,
 });

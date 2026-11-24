@@ -3,9 +3,15 @@ import torch
 import whisper
 import os
 import json
+import logging
 import threading
 import time
 from kafka import KafkaConsumer, KafkaProducer
+
+# kafka-python logs every internal retry (e.g. NotCoordinatorForGroupError while
+# Kafka creates its offsets topic on first start). It recovers on its own, so
+# only surface real errors; the worker prints its own connection status.
+logging.getLogger("kafka").setLevel(logging.ERROR)
 
 app = Flask(__name__)
 

@@ -8,6 +8,7 @@ import { EXPENSE_PROMPT, SILENCE_PATTERNS } from '../utils/constants.js';
 import { AppError } from '../errors/AppError.js';
 import { VALIDATION_ERROR, NOT_FOUND } from '../errors/errorCodes.js';
 import { logger } from '../config/logger.js';
+import { TRANSACTION_SOURCES } from '../utils/enums.js';
 
 // A transfer without a distinct destination would debit one account and credit none.
 function assertValidTransfer(txType, account, toAccount) {
@@ -66,6 +67,7 @@ export async function processAudioExpense(audioPath) {
     transaction_type: txType,
     account:          resolvedAccount,
     to_account:       resolvedToAccount,
+    source:           TRANSACTION_SOURCES.VOICE,
   });
 }
 
@@ -91,6 +93,7 @@ export async function createExpense(data) {
     transaction_type: txType,
     account:          resolvedAccount,
     to_account:       resolvedToAccount,
+    source:           TRANSACTION_SOURCES.MANUAL,
     ...(date ? { date: new Date(date) } : {}), // omitted -> the model's default, now
   });
 }
