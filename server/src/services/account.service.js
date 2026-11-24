@@ -1,43 +1,77 @@
 import { UniqueConstraintError } from 'sequelize';
+import sequelize from '../models/sequelize.js';
 import * as accountRepo from '../repositories/account.repository.js';
 import { resolveCategoryName } from '../repositories/category.repository.js';
 import * as expenseRepo from '../repositories/expense.repository.js';
 import { AppError } from '../errors/AppError.js';
 import { NOT_FOUND, VALIDATION_ERROR, DUPLICATE_ENTRY, BAD_REQUEST } from '../errors/errorCodes.js';
+import { TRANSACTION_TYPES, TRANSACTION_SOURCES } from '../utils/enums.js';
+
+/*
+ * Balances are never stored: an account's balance is the sum of its transactions.
+ * Setting a balance (on create or edit) therefore records an adjustment transaction.
+ */
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Merge source stats + transfer stats and compute balance per account name.
- */
-function buildBalanceMap(sourceStats, transferStats) {
-  const map = {};
-  [...sourceStats, ...transferStats].forEach(row => {
-    if (!map[row.acc]) map[row.acc] = { income: 0, expense: 0 };
-    map[row.acc].income  += parseFloat(row.total_income);
-    map[row.acc].expense += parseFloat(row.total_expense);
-  });
-  Object.values(map).forEach(b => { b.balance = b.income - b.expense; });
-  return map;
+const round2 = (n) => Math.round(n * 100) / 100;
+
+/** Record a ledger entry that moves an account's balance by `delta`. */
+async function recordBalanceAdjustment(accountId, delta, description, options = {}) {
+  const amount = round2(delta);
+  if (!amount) return;
+
+  const transaction_type = amount > 0 ? TRANSACTION_TYPES.INCOME : TRANSACTION_TYPES.EXPENSE;
+  await expenseRepo.create({
+    original_text: description,
+    amount:        Math.abs(amount),
+    category:      await resolveCategoryName('Balance Adjustment', transaction_type),
+    subcategory:   '',
+    transaction_type,
+    account_id:    accountId,
+    source:        TRANSACTION_SOURCES.ADJUSTMENT,
+  }, options);
+}
+
+function hasValue(v) {
+  return v !== undefined && v !== null && v !== '';
+}
+
+function rethrowDuplicate(err) {
+  if (err instanceof UniqueConstraintError) {
+    throw new AppError('An account with this name already exists.', DUPLICATE_ENTRY.status, DUPLICATE_ENTRY.code);
+  }
+  throw err;
+}
+
+/** Run `work` in a DB transaction, then refresh the account cache once it has committed. */
+async function inTransaction(work) {
+  try {
+    return await sequelize.transaction(work);
+  } finally {
+    await accountRepo.rebuildAccountCache();
+  }
 }
 
 // ─── Service methods ──────────────────────────────────────────────────────────
 
 export async function getAccountsWithBalance() {
-  const [accounts, sourceStats, transferStats] = await Promise.all([
+  const [accounts, totals] = await Promise.all([
     accountRepo.findAll(),
-    expenseRepo.getSourceStats(),
-    expenseRepo.getTransferStats(),
+    expenseRepo.getAccountTotals(),
   ]);
+  const byId = new Map(totals.map((t) => [t.account_id, t]));
 
-  const balanceMap = buildBalanceMap(sourceStats, transferStats);
-
-  return accounts.map(acc => ({
-    ...acc,
-    computed_balance: parseFloat(acc.balance || 0),
-    total_income:     balanceMap[acc.name]?.income  || 0,
-    total_expense:    balanceMap[acc.name]?.expense || 0,
-  }));
+  return accounts.map((acc) => {
+    const t = byId.get(acc.id) || { total_income: 0, total_expense: 0, balance: 0 };
+    return {
+      ...acc,
+      balance:          t.balance,
+      computed_balance: t.balance, // kept for API compatibility
+      total_income:     t.total_income,
+      total_expense:    t.total_expense,
+    };
+  });
 }
 
 export async function createAccount(data) {
@@ -45,19 +79,23 @@ export async function createAccount(data) {
   if (!name) throw new AppError('Account name is required.', VALIDATION_ERROR.status, VALIDATION_ERROR.code);
 
   try {
-    return accountRepo.create({
-      name,
-      account_type:     account_type     || 'general',
-      balance:          balance          || 0,
-      icon:             icon             || 'fa-wallet',
-      color:            color            || '#3b82f6',
-      include_in_total: include_in_total !== false,
+    const created = await inTransaction(async (transaction) => {
+      const acc = await accountRepo.create({
+        name:             name.trim(),
+        account_type:     account_type || 'general',
+        icon:             icon         || 'fa-wallet',
+        color:            color        || '#3b82f6',
+        include_in_total: include_in_total !== false,
+      }, { transaction });
+
+      if (hasValue(balance)) {
+        await recordBalanceAdjustment(acc.id, parseFloat(balance), 'Opening balance', { transaction });
+      }
+      return acc;
     });
+    return { ...created, balance: await expenseRepo.getAccountBalance(created.id) };
   } catch (err) {
-    if (err instanceof UniqueConstraintError) {
-      throw new AppError('An account with this name already exists.', DUPLICATE_ENTRY.status, DUPLICATE_ENTRY.code);
-    }
-    throw err;
+    rethrowDuplicate(err);
   }
 }
 
@@ -65,30 +103,30 @@ export async function updateAccount(id, data) {
   const existing = await accountRepo.findById(id);
   if (!existing) throw new AppError('Account not found.', NOT_FOUND.status, NOT_FOUND.code);
 
-  const oldName = existing.name;
   const { name, account_type, balance, icon, color, include_in_total } = data;
 
   try {
-    const updated = await accountRepo.update(id, {
-      name:             name             || oldName,
-      account_type:     account_type     || 'general',
-      balance:          balance          || 0,
-      icon:             icon             || 'fa-wallet',
-      color:            color            || '#3b82f6',
-      include_in_total: include_in_total !== false,
+    await inTransaction(async (transaction) => {
+      // Fields that aren't sent keep their current value.
+      await accountRepo.update(id, {
+        name:             name?.trim()     || existing.name,
+        account_type:     account_type     ?? existing.account_type,
+        icon:             icon             ?? existing.icon,
+        color:            color            ?? existing.color,
+        include_in_total: include_in_total ?? existing.include_in_total,
+      }, { transaction });
+
+      if (hasValue(balance)) {
+        const current = await expenseRepo.getAccountBalance(existing.id, { transaction });
+        await recordBalanceAdjustment(existing.id, parseFloat(balance) - current, 'Balance adjustment', { transaction });
+      }
     });
-
-    if (name && name !== oldName) {
-      await expenseRepo.updateAccountName(oldName, name);
-    }
-
-    return updated;
   } catch (err) {
-    if (err instanceof UniqueConstraintError) {
-      throw new AppError('An account with this name already exists.', DUPLICATE_ENTRY.status, DUPLICATE_ENTRY.code);
-    }
-    throw err;
+    rethrowDuplicate(err);
   }
+
+  const updated = await accountRepo.findById(id);
+  return { ...updated, balance: await expenseRepo.getAccountBalance(updated.id) };
 }
 
 export async function deleteAccount(id) {
@@ -97,16 +135,15 @@ export async function deleteAccount(id) {
   if (account.is_default) throw new AppError('Cannot delete the default account.', BAD_REQUEST.status, BAD_REQUEST.code);
 
   const defaultAccount = await accountRepo.findOne({ is_default: true });
-  const defaultName    = defaultAccount?.name || 'Cash';
+  if (!defaultAccount) throw new AppError('No default account to move transactions to.', BAD_REQUEST.status, BAD_REQUEST.code);
 
-  // Move transactions (including transfers into this account) to the default account,
-  // and carry their effect over to its balance so totals still add up.
-  const net = await expenseRepo.netTransactionEffect(account.name);
-  await expenseRepo.reassignAccount(account.name, defaultName);
-  await accountRepo.adjustAccountBalance(defaultName, net);
-  await accountRepo.destroyById(id);
+  // Transactions move to the default account, so its balance absorbs this account's balance.
+  await inTransaction(async (transaction) => {
+    await expenseRepo.reassignAccount(account.id, defaultAccount.id, { transaction });
+    await accountRepo.destroyById(account.id, { transaction });
+  });
 
-  return { message: `Account deleted. Transactions moved to ${defaultName}.` };
+  return { message: `Account deleted. Transactions moved to ${defaultAccount.name}.` };
 }
 
 export async function transferBetweenAccounts(data) {
@@ -124,16 +161,16 @@ export async function transferBetweenAccounts(data) {
   if (fromAcc === toAcc) {
     throw new AppError('Cannot transfer to the same account.', VALIDATION_ERROR.status, VALIDATION_ERROR.code);
   }
-  const transferCategory = await resolveCategoryName('Transfer', 'transfer');
 
   await expenseRepo.create({
     original_text:    description || 'Transfer',
     amount,
-    category:         transferCategory,
+    category:         await resolveCategoryName('Transfer', TRANSACTION_TYPES.TRANSFER),
     subcategory:      '',
-    transaction_type: 'transfer',
+    transaction_type: TRANSACTION_TYPES.TRANSFER,
     account:          fromAcc,
     to_account:       toAcc,
+    source:           TRANSACTION_SOURCES.MANUAL,
     ...(date ? { date: new Date(date) } : {}),
   });
 

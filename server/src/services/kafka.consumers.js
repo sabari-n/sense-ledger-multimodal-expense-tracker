@@ -10,6 +10,7 @@ import { getBot } from './telegram.service.js';
 import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
 import { kafkaMessagesConsumed, kafkaConsumerDuration } from '../config/metrics.js';
+import { TRANSACTION_SOURCES } from '../utils/enums.js';
 
 let llmConsumer = null;
 let persistenceConsumer = null;
@@ -196,6 +197,7 @@ export async function startPersistenceConsumer() {
           transaction_type: txType,
           account: resolvedAccount,
           to_account: resolvedToAccount,
+          source: TRANSACTION_SOURCES.TELEGRAM,
         });
         const dbMs = Date.now() - dbStart;
         timings.dbMs = dbMs;

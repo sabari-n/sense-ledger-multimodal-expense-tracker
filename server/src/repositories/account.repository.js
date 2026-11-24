@@ -1,4 +1,3 @@
-import { fn, col, where as seqWhere } from 'sequelize';
 import Account from '../models/account.model.js';
 import { env } from '../config/env.js';
 import { matchAccountAlias } from '../utils/heuristics.js';
@@ -95,32 +94,28 @@ export async function findOne(where = {}) {
   return Account.findOne({ where, raw: true });
 }
 
-export async function create(data) {
-  const instance = await Account.create(data);
+/**
+ * Write helpers accept `{ transaction }`. Inside a transaction the cache is NOT rebuilt
+ * (it reads on a different connection and would miss uncommitted rows) — the caller must
+ * call rebuildAccountCache() after commit.
+ */
+export async function create(data, options = {}) {
+  const instance = await Account.create(data, { transaction: options.transaction });
   const plain = instance.get({ plain: true });
-
-  // Rebuild entire in-memory cache from database on change
-  await loadAccountCache();
-
+  if (!options.transaction) await loadAccountCache();
   return plain;
 }
 
-export async function update(id, data) {
-  await Account.update(data, { where: { id } });
-  const fresh = await Account.findByPk(id, { raw: true });
-
-  // Rebuild entire in-memory cache from database on change
-  await loadAccountCache();
-
+export async function update(id, data, options = {}) {
+  await Account.update(data, { where: { id }, transaction: options.transaction });
+  const fresh = await Account.findByPk(id, { raw: true, transaction: options.transaction });
+  if (!options.transaction) await loadAccountCache();
   return fresh;
 }
 
-export async function destroyById(id) {
-  const result = await Account.destroy({ where: { id: Number(id) } });
-
-  // Rebuild entire in-memory cache from database on change
-  await loadAccountCache();
-
+export async function destroyById(id, options = {}) {
+  const result = await Account.destroy({ where: { id: Number(id) }, transaction: options.transaction });
+  if (!options.transaction) await loadAccountCache();
   return result;
 }
 
@@ -166,96 +161,3 @@ export async function resolveAccountName(accountName, fallbackDefault = true) {
   if (!fallbackDefault) return null;
   return defaultAccName;
 }
-
-/**
- * Adjust the balance of an account in PostgreSQL by delta (can be positive or negative)
- * and update the in-memory cache.
- */
-export async function adjustAccountBalance(accountName, delta, options = {}) {
-  if (!accountName || !delta || isNaN(delta)) return;
-
-  await Account.increment('balance', {
-    by: delta,
-    where: { name: accountName },
-    transaction: options.transaction,
-  });
-
-  if (!options.transaction) {
-    await loadAccountCache();
-  }
-}
-
-/**
- * Apply the balance changes of a new transaction to PostgreSQL account(s).
- */
-export async function applyTransactionBalance(transaction, options = {}) {
-  if (!transaction || !transaction.amount) return;
-  const amount = parseFloat(transaction.amount);
-  if (isNaN(amount) || amount === 0) return;
-
-  const type = transaction.transaction_type?.toLowerCase() || 'expense';
-
-  if (type === 'income') {
-    await adjustAccountBalance(transaction.account, +amount, options);
-  } else if (type === 'expense') {
-    await adjustAccountBalance(transaction.account, -amount, options);
-  } else if (type === 'transfer') {
-    await adjustAccountBalance(transaction.account, -amount, options);
-    if (transaction.to_account) {
-      await adjustAccountBalance(transaction.to_account, +amount, options);
-    }
-  }
-}
-
-/**
- * Revert the balance changes of a transaction from PostgreSQL account(s).
- */
-export async function revertTransactionBalance(transaction, options = {}) {
-  if (!transaction || !transaction.amount) return;
-  const amount = parseFloat(transaction.amount);
-  if (isNaN(amount) || amount === 0) return;
-
-  const type = transaction.transaction_type?.toLowerCase() || 'expense';
-
-  if (type === 'income') {
-    await adjustAccountBalance(transaction.account, -amount, options);
-  } else if (type === 'expense') {
-    await adjustAccountBalance(transaction.account, +amount, options);
-  } else if (type === 'transfer') {
-    await adjustAccountBalance(transaction.account, +amount, options);
-    if (transaction.to_account) {
-      await adjustAccountBalance(transaction.to_account, -amount, options);
-    }
-  }
-}
-
-/**
- * Recalculate and sync all account balances in PostgreSQL based on all existing expenses.
- */
-export async function syncAllAccountBalances() {
-  const { default: sequelize } = await import('../models/sequelize.js');
-
-  await sequelize.query(`
-    UPDATE accounts a
-    SET balance = COALESCE(src.income, 0) - COALESCE(src.expense, 0) + COALESCE(dst.transfer_in, 0)
-    FROM (
-      SELECT account,
-             COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) AS income,
-             COALESCE(SUM(CASE WHEN transaction_type IN ('expense', 'transfer') THEN amount ELSE 0 END), 0) AS expense
-      FROM expenses
-      GROUP BY account
-    ) src
-    FULL OUTER JOIN (
-      SELECT to_account,
-             COALESCE(SUM(amount), 0) AS transfer_in
-      FROM expenses
-      WHERE transaction_type = 'transfer' AND to_account IS NOT NULL
-      GROUP BY to_account
-    ) dst ON src.account = dst.to_account
-    WHERE a.name = COALESCE(src.account, dst.to_account);
-  `);
-
-  await loadAccountCache();
-}
-
-

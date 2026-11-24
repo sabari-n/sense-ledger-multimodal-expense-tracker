@@ -134,6 +134,8 @@ function App() {
       if (accountModalData.id) await updateAccount(accountModalData.id, accountModalData);
       else await createAccount(accountModalData);
       setShowAccountModal(false);
+      // A balance change is recorded as an adjustment transaction — refresh the list.
+      fetchExpenses();
     } catch (err) { alert(err.response?.data?.error || 'Failed to save account.'); }
   };
 

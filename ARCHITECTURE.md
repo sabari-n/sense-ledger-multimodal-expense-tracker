@@ -241,43 +241,47 @@ Published by the LLM extraction worker after JSON parameter extraction.
 
 ```mermaid
 erDiagram
-    ACCOUNTS ||--o{ EXPENSES : "funds (account)"
-    ACCOUNTS ||--o{ EXPENSES : "receives (to_account)"
-    CATEGORIES ||--o{ EXPENSES : "classifies"
+    ACCOUNTS ||--o{ EXPENSES : "funds (account_id)"
+    ACCOUNTS ||--o{ EXPENSES : "receives (to_account_id)"
+    CATEGORIES ||--o{ EXPENSES : "classifies (category_id)"
 
     ACCOUNTS {
         int id PK
-        varchar(100) name UK
+        varchar(100) name UK "unique, case-insensitive"
         varchar(50) account_type
-        decimal balance
         varchar(50) icon
         varchar(20) color
-        boolean is_default
+        boolean is_default "at most one true"
         boolean include_in_total
-        timestamp created_at
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     EXPENSES {
         int id PK
-        text original_text
-        decimal amount
-        text category
+        varchar(20) transaction_type "expense | income | transfer"
+        numeric(14_2) amount "greater than 0"
+        int account_id FK
+        int to_account_id FK "transfers only"
+        int category_id FK
         text subcategory
-        varchar(20) transaction_type
-        varchar(100) account
-        varchar(100) to_account
-        timestamp date
+        text original_text
+        varchar(20) source "manual | voice | telegram | adjustment | unknown"
+        timestamptz date
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     CATEGORIES {
         int id PK
-        varchar(100) name UK
+        varchar(100) name UK "unique, case-insensitive"
         varchar(20) emoji
         varchar(20) transaction_type
         jsonb subcategories
         boolean is_system
         int sort_order
-        timestamp created_at
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     TELEGRAM_RAW_MESSAGES {
@@ -285,15 +289,35 @@ erDiagram
         bigint chat_id
         varchar(20) message_type
         text raw_text
-        varchar(20) status
-        timestamp created_at
+        timestamptz created_at
     }
 ```
+
+**Integrity rules enforced by PostgreSQL** (not just the app):
+- Foreign keys use ids with `ON DELETE RESTRICT`: a category or account that transactions use can't be deleted (the API answers `409 IN_USE`). Renames don't touch any transaction rows.
+- `CHECK` constraints: amount > 0; `transaction_type` is one of the three types; a transfer must have a `to_account_id`, it must differ from `account_id`, and only transfers may have one.
+- Indexes on `expenses(date)`, `account_id`, `to_account_id`, `category_id`.
+
+### Balances are derived from the ledger
+There is no stored balance column. An account's balance is computed from its transactions:
+income + incoming transfers − expenses − outgoing transfers (`expense.repository.js#getAccountTotals`).
+Setting a balance in the UI (an opening balance when creating, or a new balance when editing) records an
+adjustment transaction for the difference, with `source = 'adjustment'`. Every change to a balance therefore shows up in the transaction list,
+and balances can't drift.
+
+### Schema migrations
+The schema is owned by versioned migrations in `server/src/migrations/` (`NNN_description.js`, each exporting
+`up({ query, transaction })`), not `sequelize.sync()`. They run automatically on API startup (`initDB`) or
+with `npm run migrate`. Each migration runs in its own transaction and is recorded in `schema_migrations`.
+An advisory lock stops concurrent runs.
+
+To change the schema: add the next numbered file (e.g. `003_add_budgets.js`), update the matching Sequelize
+model, and never edit a migration that has already run. Adding a new transaction `source` (e.g. `sms`) only
+needs a new value in `server/src/utils/enums.js`.
 
 ### Dynamic Resolution & Caching Layer
 - **In-Memory Caches**: On startup, `account.repository.js` and `category.repository.js` load active accounts and categories into in-memory maps.
 - **Fuzzy Entity Resolution**: When LLM returns account aliases (e.g., `"hdfc"`, `"cash"`, `"credit card"`), the system matches them against existing configured accounts with default fallback.
-- **Dynamic Computed Balances**: Account balances are dynamically aggregated by summing Initial Balance + Incomes + Incoming Transfers - Expenses - Outgoing Transfers.
 
 ---
 
@@ -313,8 +337,8 @@ Base URL: `http://localhost:9088/api`
 
 ### 🏦 Accounts (`/api/accounts`)
 - `GET /api/accounts`: Fetch all accounts with computed balances and transfer histories.
-- `POST /api/accounts`: Create a new custom account (`name`, `account_type`, `balance`, `icon`, `color`, `include_in_total`).
-- `PUT /api/accounts/:id`: Update account metadata and configuration.
+- `POST /api/accounts`: Create a new custom account (`name`, `account_type`, `balance`, `icon`, `color`, `include_in_total`). A non-zero `balance` is recorded as an "Opening balance" transaction.
+- `PUT /api/accounts/:id`: Update an account. Omitted fields keep their value. Sending `balance` records a "Balance adjustment" transaction for the difference.
 - `DELETE /api/accounts/:id`: Delete account (expenses fallback to default account).
 - `POST /api/accounts/transfer`: Record a transfer transaction between two accounts (`from_account`, `to_account`, `amount`).
 

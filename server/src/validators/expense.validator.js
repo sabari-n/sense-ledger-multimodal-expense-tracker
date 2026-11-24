@@ -1,57 +1,34 @@
-import { AppError } from '../errors/AppError.js';
-import { VALIDATION_ERROR } from '../errors/errorCodes.js';
+import { z } from 'zod';
+import { optional, requiredString, positiveAmount, transactionDate } from './validate.js';
+import { TRANSACTION_TYPES } from '../utils/enums.js';
 
-/**
- * Generic middleware factory — runs `schemaFn(req.body)` and collects error strings.
- * Calls next(AppError) if any are found; otherwise calls next().
- *
- * @param {(body: object) => string[]} schemaFn
- * @returns {import('express').RequestHandler}
- */
-function validate(schemaFn) {
-  return (req, res, next) => {
-    const errors = schemaFn(req.body);
-    if (errors.length > 0) {
-      return next(new AppError(errors.join('; '), VALIDATION_ERROR.status, VALIDATION_ERROR.code));
-    }
-    next();
-  };
-}
+const transactionType = optional(z.enum(Object.values(TRANSACTION_TYPES), {
+  error: 'transaction_type must be expense, income, or transfer',
+}));
 
-/** Optional transaction date: must parse, and can't be more than a day in the future (timezone slack). */
-export function dateErrors(date) {
-  if (date === undefined || date === null || date === '') return [];
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return ['date must be a valid date'];
-  if (d.getTime() > Date.now() + 24 * 60 * 60 * 1000) return ['date cannot be in the future'];
-  return [];
-}
+// Names are resolved to known accounts/categories by the service (with alias matching),
+// so here they only need to be strings. null/'' are allowed: "not set" / "clear".
+const name = z.string().nullish();
 
-export const validateCreateExpense = validate((body) => {
-  const errors = [];
-  if (body.amount === undefined || body.amount === null || body.amount === '') {
-    errors.push('amount is required');
-  } else if (isNaN(Number(body.amount)) || Number(body.amount) <= 0) {
-    errors.push('amount must be a positive number');
-  }
-  if (!body.category || typeof body.category !== 'string' || !body.category.trim()) {
-    errors.push('category is required');
-  }
-  if (body.transaction_type && !['expense', 'income', 'transfer'].includes(body.transaction_type)) {
-    errors.push('transaction_type must be expense, income, or transfer');
-  }
-  errors.push(...dateErrors(body.date));
-  return errors;
+export const createExpenseSchema = z.object({
+  amount:           positiveAmount(),
+  category:         requiredString('category'),
+  subcategory:      name,
+  transaction_type: transactionType,
+  account:          name,
+  to_account:       name,
+  original_text:    name,
+  date:             transactionDate,
 });
 
-export const validateUpdateExpense = validate((body) => {
-  const errors = [];
-  if (body.amount !== undefined && (isNaN(Number(body.amount)) || Number(body.amount) <= 0)) {
-    errors.push('amount must be a positive number');
-  }
-  if (body.transaction_type && !['expense', 'income', 'transfer'].includes(body.transaction_type)) {
-    errors.push('transaction_type must be expense, income, or transfer');
-  }
-  errors.push(...dateErrors(body.date));
-  return errors;
+// Every field optional: only the fields sent are changed.
+export const updateExpenseSchema = z.object({
+  amount:           optional(positiveAmount()),
+  category:         name,
+  subcategory:      name,
+  transaction_type: transactionType,
+  account:          name,
+  to_account:       name,
+  original_text:    name,
+  date:             transactionDate,
 });

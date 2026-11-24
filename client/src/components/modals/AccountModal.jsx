@@ -98,7 +98,7 @@ export default function AccountModal({ data, onChange, onSave, onClose, onDelete
             <MenuItem value="investment">Investment</MenuItem>
           </Select>
 
-          <label>Initial Balance ({currencySymbol})</label>
+          <label>{data.id ? 'Current Balance' : 'Initial Balance'} ({currencySymbol})</label>
           <input
             type="number"
             step="0.01"
