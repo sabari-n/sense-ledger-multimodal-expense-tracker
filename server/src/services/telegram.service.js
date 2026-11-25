@@ -14,6 +14,8 @@ import { accountsFromText, detectIntent, matchCategoryKeyword, matchSubcategory 
 import { transcribeAudio } from './audio.service.js';
 import { SILENCE_PATTERNS } from '../utils/constants.js';
 import { logger } from '../config/logger.js';
+import { askLedger } from '../agent/agent.service.js';
+import { AppError } from '../errors/AppError.js';
 
 import { env } from '../config/env.js';
 
@@ -24,6 +26,71 @@ let bot = null;
 
 // Track pending corrections: chatId -> expenseId
 const pendingCorrections = new Map();
+
+// ─────────────────────────────────────────────
+// Ask-your-ledger agent
+// ─────────────────────────────────────────────
+
+// Recent Q&A per chat so follow-ups ("and in August?") work. In memory, bounded and expiring.
+const agentHistory = new Map(); // chatId -> { messages, updatedAt }
+const AGENT_HISTORY_TTL_MS = 30 * 60 * 1000;
+const AGENT_HISTORY_MAX_CHATS = 200;
+
+const QUESTION_START = /^(how|what|what's|which|when|where|why|who|did|do|does|am|is|are|was|were|can|could|show|list|compare|tell me|give me)\b/i;
+
+/**
+ * A plain text message is a question for the agent (rather than a transaction to record)
+ * when it ends with "?" or starts like a question. "/ask …" always goes to the agent.
+ */
+export function looksLikeQuestion(text) {
+  return text.endsWith('?') || QUESTION_START.test(text);
+}
+
+function getAgentHistory(chatId) {
+  const entry = agentHistory.get(chatId);
+  if (!entry) return [];
+  if (Date.now() - entry.updatedAt > AGENT_HISTORY_TTL_MS) {
+    agentHistory.delete(chatId);
+    return [];
+  }
+  return entry.messages;
+}
+
+function saveAgentTurn(chatId, question, answer) {
+  const messages = [...getAgentHistory(chatId), { role: 'user', content: question }, { role: 'assistant', content: answer }].slice(-6);
+  agentHistory.delete(chatId); // re-insert so Map order = least recently used first
+  agentHistory.set(chatId, { messages, updatedAt: Date.now() });
+  if (agentHistory.size > AGENT_HISTORY_MAX_CHATS) agentHistory.delete(agentHistory.keys().next().value);
+}
+
+async function handleLedgerQuestion(chatId, question) {
+  await bot.sendChatAction(chatId, 'typing').catch(() => { });
+  const statusMsg = await bot.sendMessage(chatId, '🤔 Looking that up in your ledger…');
+  const edit = (text) => bot.editMessageText(text, { chat_id: chatId, message_id: statusMsg.message_id }).catch(() => { });
+
+  try {
+    const result = await askLedger({ question, history: getAgentHistory(chatId), channel: 'telegram' });
+    saveAgentTurn(chatId, question, result.answer);
+    // Plain text on purpose: model output can contain characters that break Telegram Markdown.
+    await edit(result.answer);
+  } catch (err) {
+    if (err instanceof AppError) {
+      await edit(`⚠️ ${err.message}`);
+    } else {
+      logger.error('[Telegram] Agent error:', err);
+      await edit('❌ Something went wrong while answering. Please try again.');
+    }
+  }
+}
+
+async function handleAskCommand(msg, match) {
+  const question = (match?.[1] || '').trim();
+  if (!question) {
+    await bot.sendMessage(msg.chat.id, 'Ask me about your ledger, e.g.\n/ask How much did I spend on food this month?\n/ask Which account is running low?');
+    return;
+  }
+  await handleLedgerQuestion(msg.chat.id, question);
+}
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -353,6 +420,11 @@ async function handleTextMessage(msg) {
     return;
   }
 
+  if (looksLikeQuestion(text)) {
+    await handleLedgerQuestion(chatId, text);
+    return;
+  }
+
   try {
     const startTime = Date.now();
     const eventId = generateEventId();
@@ -389,7 +461,9 @@ async function handleStart(msg) {
   await bot.sendMessage(
     chatId,
     `👋 Hi *${firstName}*! I'm your *Voice & Image Expense Tracker* bot.\n\n` +
-    `Send me a voice note, audio file, or receipt photo and I'll queue it for asynchronous processing via Kafka.`,
+    `Send me a voice note, audio file, or receipt photo and I'll queue it for asynchronous processing via Kafka.\n\n` +
+    `Or ask me about your money, e.g. _"How much did I spend on food this month?"_ or ` +
+    `_/ask Which account is running low?_`,
     { parse_mode: 'Markdown' }
   );
 }
@@ -452,10 +526,22 @@ export function initTelegramBot(token) {
 
   bot = new TelegramBot(token, { polling: true });
 
+  const allowed = new Set(env.telegram.allowedChatIds);
+  if (allowed.size === 0) {
+    logger.warn('[Telegram] TELEGRAM_ALLOWED_CHAT_IDS is not set — anyone who finds the bot can read and change the ledger.');
+  }
+  const isAllowed = (chatId) => allowed.size === 0 || allowed.has(String(chatId));
+
   // A failed Telegram call (e.g. "chat not found") inside a handler must never
   // become an unhandled rejection: that kills the whole API process.
   const safe = (name, handler) => async (...args) => {
     try {
+      const chatId = args[0]?.chat?.id ?? args[0]?.message?.chat?.id;
+      if (!isAllowed(chatId)) {
+        logger.warn(`[Telegram] Ignored ${name} from chat ${chatId}: not in TELEGRAM_ALLOWED_CHAT_IDS.`);
+        if (name === 'start') await bot.sendMessage(chatId, `This bot is private. (chat id: ${chatId})`);
+        return;
+      }
       await handler(...args);
     } catch (err) {
       logger.error(`[Telegram] ${name} handler failed:`, err);
@@ -464,6 +550,7 @@ export function initTelegramBot(token) {
 
   bot.onText(/\/start/, safe('start', handleStart));
   bot.onText(/\/help/, safe('help', handleStart));
+  bot.onText(/^\/ask(?:@\w+)?(?:\s+([\s\S]+))?$/, safe('ask', handleAskCommand));
 
   bot.on('voice', safe('voice', handleVoiceMessage));
   bot.on('audio', safe('audio', handleAudioMessage));

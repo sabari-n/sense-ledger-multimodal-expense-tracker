@@ -14,6 +14,13 @@ services:
   kafka:
     ports:
       - "9092:9092"
+      - "29092:29092"   # for processes on the host, e.g. the API run with `npm run dev`
+    environment:
+      # Containers reach Kafka as kafka:9092. The host can't resolve "kafka", so a second
+      # listener advertises localhost:29092 to clients outside Docker.
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT'
+      KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092'
 
   api:
     build:
@@ -57,7 +64,9 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_API_TARGET: http://api:9088
+      # Defaults to the API container. To use an API running on the host:
+      #   VITE_API_TARGET=http://host.docker.internal:9088 docker compose up -d --force-recreate client
+      VITE_API_TARGET: ${VITE_API_TARGET:-http://api:9088}
       VITE_USE_POLLING: "true"   # bind-mount file events are unreliable on macOS/Windows
     volumes:
       - ./client/src:/app/src

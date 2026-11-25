@@ -12,6 +12,7 @@ SenseLedger is a full-stack, 100% local, multi-modal AI expense tracker designed
 - **⚡ Event-Driven Backbone**: Apache Kafka (KRaft mode) decouples ingestion from AI perception and database writes for non-blocking performance.
 - **🧠 100% Local LLM Extraction**: Uses Ollama (`llama3.2:1b` or `llama3`) with dynamic taxonomy injection to parse amount, category, subcategory, account, and transaction type.
 - **✏️ Interactive Telegram Actions**: Every recorded transaction in Telegram includes inline `🗑️ Delete` and `✏️ Correct` buttons with multi-turn natural language correction.
+- **💬 Ask Your Ledger (AI agent)**: Ask *"How much did I spend on food in October vs September?"* or *"Which account is running low?"* in the web UI or Telegram. A local tool-calling agent answers from your data through validated, read-only tools, and refuses what the ledger can't answer. See [docs/AGENT.md](./docs/AGENT.md).
 - **🏦 Multi-Account Management**: Real-time balance calculations for Cash, Bank Accounts, Credit Cards, and Wallets with inter-account fund transfers.
 - **📊 Analytics & Visualizations**: Interactive Doughnut charts powered by Chart.js with dynamic category breakdown badges.
 - **🇮🇳 Indian Rupee (`₹`) Standard**: Native Indian currency formatting (e.g. `-₹ 1,500.00`, `₹ 45,000.00`).
@@ -137,15 +138,31 @@ To log expenses via voice notes, receipt photos, and chat in Telegram:
    ```env
    TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
    ```
+7. Lock the bot to your own chat. Start with a placeholder (`TELEGRAM_ALLOWED_CHAT_IDS=0`) and send `/start`. The bot replies *"This bot is private. (chat id: …)"*. Put that id in place of the placeholder and restart the API:
+   ```env
+   TELEGRAM_ALLOWED_CHAT_IDS=123456789
+   ```
+   Without this, anyone who finds the bot can read and change your ledger.
 
 ### 3. Launch All Containers
 ```bash
 docker compose up --build -d
 ```
 
+The ledger agent needs an Ollama model that supports tool calling (`gemma3` does not). Pull one and, if it isn't `qwen2.5:7b`, set `OLLAMA_AGENT_MODEL` in `.env`:
+```bash
+ollama pull qwen2.5:7b
+```
+
+Optional: fill the ledger with six months of realistic sample transactions (re-runnable; never touches real data):
+```bash
+cd server && npm run seed:sample        # npm run seed:sample:clear removes it again
+```
+
 ### 4. Access & Test
 - **Web UI**: [http://localhost:80](http://localhost:80) (or [http://localhost:5173](http://localhost:5173) in dev mode)
 - **Telegram Bot**: Open Telegram, search for your bot username, send `/start`, and send a voice note (*"Spent ₹500 on dinner"*) or snap a receipt photo!
+- **Ask your ledger**: open **Ask Ledger** in the web UI, or in Telegram send a question (*"Which account is running low?"*) or `/ask …`.
 - **Kafka UI Console**: [http://localhost:8090](http://localhost:8090)
 - **Grafana Monitoring Dashboard**: [http://localhost:3000](http://localhost:3000) *(admin / admin)*
 - **Prometheus Metrics**: [http://localhost:9090](http://localhost:9090)
@@ -156,5 +173,6 @@ docker compose up --build -d
 ## 📖 Additional Documentation
 
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)**: Deep dive into microservices, Kafka event contracts, database schemas, and REST APIs.
+- **[docs/AGENT.md](./docs/AGENT.md)**: How the "ask your ledger" agent works: tools, agent loop, guardrails, configuration and metrics.
 - **[LLM Benchmark](./benchmarks/llm/README.md)**: Runnable model comparison suite. Results are in [RESULTS.md](./benchmarks/llm/RESULTS.md).
 - **[MEDIUM_ARTICLE.md](./MEDIUM_ARTICLE.md)**: Article covering the architectural decisions, local AI model selection, and trade-offs.

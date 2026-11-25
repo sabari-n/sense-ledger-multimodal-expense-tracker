@@ -1,0 +1,54 @@
+{
+  // Run and Debug panel (⇧⌘D) → pick a configuration → F5.
+  // AGENT_TIMEOUT_MS is raised so the 90s agent timeout doesn't abort a question
+  // while you sit on a breakpoint.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Agent: debug one question",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/server/src/agent/ask.cli.js",
+      "args": ["${input:question}"],
+      "cwd": "${workspaceFolder}/server",
+      "env": { "AGENT_TIMEOUT_MS": "3600000", "AGENT_LOG_SQL": "true" },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Agent: debug loop tests (fake LLM)",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["--test", "--test-concurrency=1", "${workspaceFolder}/server/test/agent.loop.test.js"],
+      "cwd": "${workspaceFolder}/server",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "API server: launch under debugger",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/server/src/server.js",
+      "cwd": "${workspaceFolder}/server",
+      "env": { "AGENT_TIMEOUT_MS": "3600000" },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "API server: attach (npm run dev:debug)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "question",
+      "type": "promptString",
+      "description": "Question for the ledger agent",
+      "default": "How much did I spend on food in October compared with September?"
+    }
+  ]
+}

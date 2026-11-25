@@ -7,7 +7,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "migrate": "node src/db/migrate.js"
+    "migrate": "node src/db/migrate.js",
+    "ask": "node src/agent/ask.cli.js",
+    "test": "node --test test/",
+    "seed:sample": "node src/db/seed-sample.js",
+    "seed:sample:clear": "node src/db/seed-sample.js --clear",
+    "dev:debug": "node --inspect --watch src/server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

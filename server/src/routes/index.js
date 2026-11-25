@@ -5,6 +5,7 @@ import accountRoutes  from './account.routes.js';
 import categoryRoutes from './category.routes.js';
 import telegramRoutes from './telegram.routes.js';
 import configRoutes   from './config.routes.js';
+import agentRoutes    from './agent.routes.js';
 
 const router = Router();
 
@@ -14,5 +15,6 @@ router.use('/accounts',   accountRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/telegram',   telegramRoutes);
 router.use('/config',     configRoutes);
+router.use('/agent',      agentRoutes);
 
 export default router;

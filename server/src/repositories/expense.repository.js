@@ -126,11 +126,16 @@ export async function reassignAccount(fromAccountId, toAccountId, options = {}) 
  * expressions, i.e. the same SQL in harder-to-read wrappers. `total_income` = income + transfers in, `total_expense` = expenses +
  * transfers out, `balance` = the difference. Accounts without transactions are included.
  *
- * @param {{ accountId?: number, transaction?: object }} [options]
+ * `connection` runs the query elsewhere: anything with Sequelize's `query(sql, options)`.
+ * The agent passes its read-only handle (agent/db.js#readOnlyDb), so balances have one
+ * definition shared by the app and the agent.
+ *
+ * @param {{ accountId?: number, transaction?: object, connection?: { query: Function } }} [options]
  * @returns {Promise<Array<{account_id:number, total_income:number, total_expense:number, balance:number}>>}
  */
 export async function getAccountTotals(options = {}) {
-  const rows = await sequelize.query(
+  const db = options.connection || sequelize;
+  const rows = await db.query(
     `SELECT a.id AS account_id,
             COALESCE(SUM(CASE WHEN e.account_id = a.id AND e.transaction_type = 'income' THEN e.amount
                               WHEN e.to_account_id = a.id THEN e.amount ELSE 0 END), 0) AS total_income,

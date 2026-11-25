@@ -41,6 +41,8 @@ The LLM gets tools such as `query_expenses(category, date_range)` and `get_balan
 
 **Done when:** the bot answers spending and balance questions correctly from the database, and refuses questions it can't answer from the data.
 
+**Status:** built. See [AGENT.md](AGENT.md) for how it works.
+
 ### 2. Evals
 
 Turn the 13-case benchmark in [`benchmarks/llm`](../benchmarks/llm) into a real eval suite:

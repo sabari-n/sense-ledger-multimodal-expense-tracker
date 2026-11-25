@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { id: 'transactions', icon: 'fa-list-ul',   label: 'Transactions' },
   { id: 'analytics',   icon: 'fa-chart-pie',  label: 'Analytics' },
   { id: 'accounts',    icon: 'fa-wallet',      label: 'Accounts' },
+  { id: 'ask',         icon: 'fa-comments',    label: 'Ask Ledger' },
   { id: 'record',      icon: 'fa-microphone',  label: 'Voice Record' },
 ];
 

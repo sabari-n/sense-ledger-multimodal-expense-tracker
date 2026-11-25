@@ -5,12 +5,14 @@ import './App.css';
 import { useExpenses } from './hooks/useExpenses';
 import { useAccounts } from './hooks/useAccounts';
 import { useConfig } from './hooks/useConfig';
+import { useAgent } from './hooks/useAgent';
 
 // Screens
 import RecordScreen from './components/RecordScreen';
 import TransactionsScreen from './components/TransactionsScreen';
 import AccountsScreen from './components/AccountsScreen';
 import AnalyticsScreen from './components/AnalyticsScreen';
+import AskScreen from './components/AskScreen';
 import BottomNav from './components/BottomNav';
 import SideNav from './components/SideNav';
 
@@ -32,6 +34,8 @@ function App() {
   // Data hooks
   const { expenses, fetchExpenses, createExpense, updateExpense, deleteExpense, uploadAudio } = useExpenses();
   const { accounts, fetchAccounts, createAccount, updateAccount, deleteAccount, transferFunds } = useAccounts();
+  // Held here (not in AskScreen) so the conversation survives switching screens.
+  const agent = useAgent();
 
   // Modal visibility
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -202,6 +206,14 @@ function App() {
               onDelete={handleDeleteAccount}
               onTransfer={() => setShowTransferModal(true)}
               currencySymbol={currencySymbol}
+            />
+          )}
+          {activeScreen === 'ask' && (
+            <AskScreen
+              messages={agent.messages}
+              loading={agent.loading}
+              onAsk={agent.ask}
+              onReset={agent.reset}
             />
           )}
           {activeScreen === 'analytics' && (

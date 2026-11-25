@@ -46,6 +46,21 @@ export const env = {
     },
   },
 
+  // "Ask your ledger" agent. Its model must support tool calling in Ollama (gemma3 does not).
+  agent: {
+    model: process.env.OLLAMA_AGENT_MODEL || 'qwen2.5:7b',
+    maxSteps: parseInt(process.env.AGENT_MAX_STEPS, 10) || 6,
+    timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS, 10) || 90_000,
+    maxConcurrent: parseInt(process.env.AGENT_MAX_CONCURRENT, 10) || 2,
+    // Log every SQL statement the agent's tools run, as sent to Postgres (dev aid).
+    logSql: process.env.AGENT_LOG_SQL === 'true',
+    // Password of the read-only `ledger_agent` Postgres role the agent's tools connect as.
+    dbPassword: process.env.DB_AGENT_PASSWORD || 'ledger_agent_password',
+  },
+
+  // Calendar months and "today" for the agent are computed in this zone (the DB stores UTC).
+  timezone: process.env.APP_TIMEZONE || 'Asia/Kolkata',
+
   defaults: {
     account: process.env.DEFAULT_ACCOUNT || 'Union Bank',
     expenseCategory: process.env.DEFAULT_EXPENSE_CATEGORY || 'Other',
@@ -55,6 +70,9 @@ export const env = {
 
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    // Comma-separated chat ids allowed to use the bot. Empty = anyone (logged as a warning).
+    allowedChatIds: (process.env.TELEGRAM_ALLOWED_CHAT_IDS || '')
+      .split(',').map((s) => s.trim()).filter(Boolean),
   },
 };
 

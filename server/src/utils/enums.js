@@ -19,4 +19,5 @@ export const TRANSACTION_SOURCES = Object.freeze({
   VOICE: 'voice',            // web UI audio upload
   TELEGRAM: 'telegram',      // Telegram bot (text, voice, photo)
   ADJUSTMENT: 'adjustment',  // balance edits and opening balances
+  SAMPLE: 'sample',          // generated demo data (npm run seed:sample) — removable as a set
 });

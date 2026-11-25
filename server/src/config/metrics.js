@@ -118,3 +118,33 @@ export const kafkaConsumerDuration = new client.Histogram({
   registers: [register],
 });
 
+
+// --- Agent ("ask your ledger") Metrics ---
+export const agentRequestsTotal = new client.Counter({
+  name: 'agent_requests_total',
+  help: 'Questions handled by the ledger agent, by outcome',
+  labelNames: ['channel', 'outcome'], // outcome: answered | refused | ungrounded | step_limit | timeout | busy | error
+  registers: [register],
+});
+
+export const agentRequestDuration = new client.Histogram({
+  name: 'agent_request_duration_seconds',
+  help: 'End-to-end time to answer a ledger question',
+  labelNames: ['channel', 'outcome'],
+  buckets: [0.5, 1, 2, 5, 10, 20, 30, 60, 90],
+  registers: [register],
+});
+
+export const agentSteps = new client.Histogram({
+  name: 'agent_steps',
+  help: 'LLM calls (agent loop iterations) needed per question',
+  buckets: [1, 2, 3, 4, 5, 6, 8],
+  registers: [register],
+});
+
+export const agentToolCallsTotal = new client.Counter({
+  name: 'agent_tool_calls_total',
+  help: 'Tool calls made by the ledger agent',
+  labelNames: ['tool', 'status'], // status: ok | invalid (bad arguments, model retries) | error
+  registers: [register],
+});

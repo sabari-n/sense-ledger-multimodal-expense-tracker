@@ -19,6 +19,10 @@ export async function initDB() {
     // Schema is owned by versioned migrations (src/migrations), not sequelize.sync().
     await runMigrations();
 
+    // The agent's read-only role gets its password from env (rotatable without a migration).
+    const { enableAgentLogin } = await import('../agent/db.js');
+    await enableAgentLogin(sequelize);
+
     // Seed missing categories from JSON configuration
     for (const cat of DEFAULT_CATEGORIES) {
       const { keywords, ...fields } = cat; // keywords feed heuristics, not the table
